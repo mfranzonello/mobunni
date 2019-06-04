@@ -76,7 +76,7 @@ class PowerCurves:
         curve = allowed_curves[chosen_percentile]
         
         # remove months where power is gone
-        curve = curve[curve != 0]
+        curve = curve[curve != 0].dropna()
        
         return curve
 
@@ -108,13 +108,12 @@ class PowerModules:
         self.sql_db = sql_db
 
     # find best new power module available
-    def get_model(self, filtered, install_date, power_needed=0, energy_needed=0, time_needed=0, bespoke=True, best=False, allowed_fru_models=None):
-        buildable_modules = self.sql_db.get_buildable_modules(install_date, bespoke=(bespoke and not best),
-                                                              filtered=filtered, allowed=allowed_fru_models)
+    def get_model(self, filtered, install_date, power_needed=0, energy_needed=0, time_needed=0, best=False, allowed_fru_models=None):
+        buildable_modules = self.sql_db.get_buildable_modules(install_date, filtered=filtered, allowed=allowed_fru_models)
 
-        buildable_modules.loc[:, 'rating'] = buildable_modules.apply(lambda x: self.get_rating(x['module'], x['mark']),
+        buildable_modules.loc[:, 'rating'] = buildable_modules.apply(lambda x: self.get_rating(x['model'], x['mark']),
                                                                      axis='columns')
-        buildable_modules.loc[:, 'energy'] = buildable_modules.apply(lambda x: self.get_energy(x['module'], x['mark'], time_needed),
+        buildable_modules.loc[:, 'energy'] = buildable_modules.apply(lambda x: self.get_energy(x['model'], x['mark'], time_needed),
                                                                      axis='columns')
 
         # check power requirements
@@ -128,23 +127,40 @@ class PowerModules:
 
         # check energy requirements
         if energy_needed > 0:
-            filter = filtered_modules.apply(lambda x: self.get_energy(x['module'], x['mark'], time_needed) >= energy_needed,
+            filter = filtered_modules.apply(lambda x: self.get_energy(x['model'], x['mark'], time_needed) >= energy_needed,
                                                                       axis='columns')
             filtered_modules = filtered_modules[filter]
 
         module = filtered_modules.iloc[0, :]
-        module_model = module['module']
-        module_mark = module['mark']
+        model = module['model']
+        mark = module['mark']
 
-        return module_model, module_mark
+        return model, mark
+
+    # find bespoke options for a power module model
+    def get_bespokes(self, model, base, install_date):
+        marks = [base] + self.sql_db.get_module_bespokes(model, base, install_date)
+        return marks
 
     # return initial power rating of a given module
-    def get_rating(self, module_model, module_mark):
-        rating = self.sql_db.get_module_rating(module_model, module_mark)
+    def get_rating(self, model, mark):
+        rating = self.sql_db.get_module_rating(model, mark)
         return rating
 
-    # return expected energy output
-    def get_energy(self, module_model, module_mark, time_needed):
-        curves = PowerCurves(self.sql_db.get_power_curves(module_model, module_mark))
+    # return initial power rating of all marks of a module
+    def get_ratings(self, model, install_date):
+        marks = self.get_marks(model, install_date)
+        ratings = [self.get_rating(model, mark) for mark in marks]
+        return ratings
+
+    # return expected energy output of a given model
+    def get_energy(self, model, mark, time_needed):
+        curves = PowerCurves(self.sql_db.get_power_curves(model, mark))
         energy = curves.get_expected_energy(time_needed=time_needed)
         return energy
+
+    # return expected energy output of all marks of a module
+    def get_energies(self, model, install_date, time_needed):
+        marks = self.get_marks(model, install_date)
+        energies = [self.get_energy(model, mark, time_needed) for mark in marks]
+        return energies

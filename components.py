@@ -5,26 +5,28 @@ from dateutil.relativedelta import relativedelta
 
 # power module (field replaceable unit)
 class FRU:
-    def __init__(self, serial, module_model, module_mark, power_curves, efficiency_curve, install_date, current_date,
+    def __init__(self, serial, model, base, mark, power_curves, efficiency_curve, install_date, current_date,
                  fit=None):
         # FRU defined by sampled power curve at given installation year
         # FRUs are typically assumed to be new and starting at time 0, otherwise they follow the best fit power curve
         self.serial = serial
+        self.model = model
+        self.base = base
+        self.mark = mark
+
         self.install_date = install_date
         operating_time = relativedelta(current_date, install_date)
         self.month = operating_time.years*12 + operating_time.months
         
-        self.module_model = module_model
-        self.module_mark = module_mark
+        self.power_curves = None
+        self.ideal_curve = None
+        self.efficiency_curve = None
+        self.rating = 0
+        self.max_efficiency = 0
+        self.set_curves(power_curves, efficiency_curve)
 
-        self.power_curves = power_curves
         self.power_curve = self.power_curves.pick_curve(allowed=[0,1], fit=fit)
-        self.ideal_curve = self.power_curves.pick_curve(allowed='ideal')
-        self.efficiency_curve = efficiency_curve
-
-        self.rating = self.power_curve[0]
-        self.max_efficiency = self.efficiency_curve[0]
-
+        
     def __str__(self):
         if self.is_dead():
             age_string = ' XXX '
@@ -36,6 +38,15 @@ class FRU:
                                                                                self.get_efficiency(),
                                                                                age_string)
         return string
+
+    # set power and efficiency curves, rating and starting efficiency for new or overhauled FRU
+    def set_curves(self, power_curves, efficiency_curve):
+        self.power_curves = power_curves
+        self.ideal_curve = power_curves.pick_curve(allowed='ideal')
+        self.rating = self.ideal_curve[0]
+
+        self.efficiency_curve = efficiency_curve
+        self.max_efficiency = efficiency_curve[0]
 
     # power at current degradation level
     def get_power(self, ideal=False):
@@ -74,8 +85,8 @@ class FRU:
 
     # FRU is too old for use
     def is_dead(self):
-        old = self.month >= len(self.power_curve)
-        return old
+        dead = self.month >= len(self.power_curve)
+        return dead
 
     # determine if the power module has degraded already
     def is_degraded(self, threshold=0):
@@ -112,7 +123,16 @@ class FRU:
     def store(self, months):
         self.month += months
         return
- 
+
+    # replace stacks and choose new power curves for bespoke options
+    def overhaul(self, mark, power_curves, efficiency_curves):
+        # give new bespoke mark
+        self.mark = mark
+        # set new power and efficiency curves
+        self.set_curves(power_curves, efficiency_curve)
+        # reset month
+        self.month = 0
+        
 # cabinet in energy server that can house a FRU
 class Enclosure:  
     def __init__(self, serial, number):

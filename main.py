@@ -50,9 +50,10 @@ def run_simulation(details, scenario, sql_db):
 
 # output results
 def save_results(project, scenario, simulation):
-    inputs, summary, residuals, costs, transactions = simulation.get_results()
+    inputs, site_performance, residuals, costs, fru_power, fru_efficiency, transactions = simulation.get_results()
     excelerator = Excelerator(path=None, filename='bpm_results_{}_{}'.format(project.name, scenario.name), extension='xlsx')  
-    excelerator.add_sheets({'Inputs': inputs, 'Power+Eff': summary, 'Residual': residuals, 'Costs': costs, 'Transactions': transactions},
+    excelerator.add_sheets({'Inputs': inputs, 'Power+Eff': site_performance, 'Residual': residuals, 'Costs': costs,
+                            'Power': fru_power, 'Efficiency': fru_efficiency, 'Transactions': transactions},
                            index=False)
     excelerator.to_excel(start=False)
 

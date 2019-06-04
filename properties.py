@@ -19,12 +19,18 @@ class Site:
         self.start_date = start_date
 
         self.contract_length = contract_length
-        self.performance = pandas.DataFrame(columns=['site', 'date', 'power', 'CTMO', 'WTMO', 'PTMO', 'fuel', 'Ceff', 'Weff', 'Peff', 'efficiency', 'cumu eff'],
+
+        date_range = pandas.date_range(start=start_date, periods=contract_length*12, freq='MS')
+        self.performance = pandas.DataFrame(columns=['site', 'date', 'year', 'power', 'CTMO', 'WTMO', 'PTMO', 'fuel', 'Ceff', 'Weff', 'Peff', 'ceiling loss'],
                                     index=range(contract_length*12),
                                     data=0)
 
         self.performance.loc[:, 'site'] = self.number + 1
-        self.performance.loc[:, 'date'] = pandas.date_range(start=start_date, periods=contract_length*12, freq='MS')
+        self.performance.loc[:, 'date'] = date_range
+
+        self.power = pandas.DataFrame(columns=['date'])
+        self.power.loc[:, 'date'] = date_range
+        self.efficiency = self.power.copy()
 
         self.limits = limits
         if self.limits['window'] is None:
@@ -174,6 +180,23 @@ class Site:
         site_ceiling_loss = sum(self.get_server_ceiling_loss())
         return site_ceiling_loss
 
+    # add FRUs to site
+    def populate(self, existing_servers, plus_one_empty=False):
+        # servers already exist
+        if len(existing_servers.get('df')):
+            self.populate_existing(existing_servers)
+
+        # servers are new
+        else:
+            self.populate_new(plus_one_empty)
+
+        # prepare performance storage
+        reindex = ['date'] + ['ES{}|{}'.format(s_n, e_n) \
+            for s_n in range(len(self.servers)) \
+            for e_n in ['ENC{}'.format(f_n) for f_n in range(len(self.servers[s_n].enclosures))] + ['=', '-']]
+        self.power = self.power.reindex(reindex, axis='columns')
+        self.efficiency = self.efficiency.reindex(reindex, axis='columns')
+
     # add existing FRUs to site
     def populate_existing(self, existing_servers):
         # house existing frus in corresponding servers
@@ -238,14 +261,6 @@ class Site:
 
         self.system_size = self.get_system_size()       
        
-    # add FRUs to site
-    def populate(self, existing_servers, plus_one_empty=False):
-        if len(existing_servers.get('df')):
-            self.populate_existing(existing_servers)
-
-        else:
-            self.populate_new(plus_one_empty)
-
     # return usable FRUs at end of contract
     def decommission(self):
         for server in self.servers:
@@ -400,8 +415,16 @@ class Site:
         fail = (limit is not None) and (value < limit)
         return fail
 
-    # store cumulative, windowed and instantaneous TMO and efficiency
+    # store performance at FRU and site level
     def store_performance(self):
+        self.store_fru_performance()
+        commitments, fails = self.store_site_performance()
+        return commitments, fails
+    
+    # store cumulative, windowed and instantaneous TMO and efficiency
+    def store_site_performance(self):
+        self.performance.loc[self.month, 'year'] = self.get_year()
+
         power = self.get_site_power()
         self.performance.loc[self.month, 'power'] = power
 
@@ -411,22 +434,24 @@ class Site:
 
         wtmo = self.performance['power'].loc[max(0,self.month-self.limits['window']):self.month].mean() / self.system_size
         self.performance.loc[self.month, 'WTMO'] = wtmo
-        
+
         ptmo = power / self.system_size
         self.performance.loc[self.month, 'PTMO'] = ptmo
-
+        
         efficiency = self.get_site_efficiency()
-        self.performance.loc[self.month, 'efficiency'] = efficiency
+        self.performance.loc[self.month, 'fuel'] = self.performance.loc[self.month, 'power'] / efficiency
 
-        ##self.performance.loc[self.month, 'fuel'] = self.performance['power'].div(self.performance['efficiency'])
+        ceff = self.performance['power'].loc[:self.month].sum() / self.performance['fuel'].loc[:self.month].sum()
+        self.performance.loc[self.month, 'Ceff'] = ceff
 
-        ceff = self.performance['efficiency'].loc[:self.month].mean()
-        self.performance.loc[self.month, 'cumu eff'] = ceff
-
-        weff = self.performance['efficiency'].loc[max(0,self.month-self.limits['window']):self.month].mean()
-        self.performance.loc[self.month, 'win eff'] = weff
+        weff = self.performance['power'].loc[max(0,self.month-self.limits['window']):self.month].sum() \
+            / self.performance['fuel'].loc[max(0,self.month-self.limits['window']):self.month].sum()
+        self.performance.loc[self.month, 'Weff'] = weff
 
         peff = efficiency
+        self.performance.loc[self.month, 'Peff'] = peff
+        
+        self.performance.loc[self.month, 'ceiling loss'] = self.get_site_ceiling_loss()
 
         ctmo_fail = self.check_fail(ctmo, self.limits['CTMO'])
         wtmo_fail = self.check_fail(wtmo, self.limits['WTMO'])
@@ -441,8 +466,25 @@ class Site:
         fails = {'TMO': ctmo_fail | wtmo_fail | ptmo_fail, 'efficiency': ceff_fail | weff_fail,
                  'CTMO': ctmo_fail, 'WTMO': wtmo_fail, 'PTMO': ptmo_fail,
                  'Ceff': ceff_fail, 'Weff': weff_fail, 'Peff': peff}
-   
+
         return commitments, fails
+
+	# store power and efficiency at each FRU and server
+    def store_fru_performance(self):
+        for server in self.servers:
+            for enclosure in server.enclosures:
+                if enclosure.is_filled():
+                    power = enclosure.fru.get_power()
+                    efficiency = enclosure.fru.get_efficiency()
+                else:
+                    power = pandas.np.nan
+                    efficiency = pandas.np.nan
+
+                self.power.loc[self.month, 'ES{}|ENC{}'.format(server.number, enclosure.number)] = power
+                self.efficiency.loc[self.month, 'ES{}|ENC{}'.format(server.number, enclosure.number)] = efficiency
+                
+            self.power.loc[self.month, 'ES{}|='.format(server.number)] = server.get_power()
+            self.power.loc[self.month, 'ES{}|-'.format(server.number)] = server.get_ceiling_loss()
 
     # check if FRUs need to be repaired, replaced or redeployed
     def check_site(self):

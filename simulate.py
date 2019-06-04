@@ -70,11 +70,12 @@ class Scenario:
 # sites installed over phases and run for full contracts
 class Simulation:
     def __init__(self, details, scenario, sql_db):
-        self.powers = []
+        self.fru_performance = []
+        self.site_performance = []
         self.residuals = []
         self.costs = []
         self.transactions = []
-                
+        
         self.n_runs = details.n_runs
         self.n_scenarios = details.n_scenarios
         self.n_sites = details.n_sites
@@ -166,13 +167,14 @@ class Simulation:
     # save results of a simulation
     def append_summaries(self, fleet):
         # store fleet power, efficiency and costs
-        self.powers.extend(fleet.summarize_performance())
+        self.site_performance.extend(fleet.summarize_site_performance())
         self.residuals.append(fleet.summarize_residuals())
         self.costs.append(fleet.summarize_transactions())
 
-        # keep record of transactions
+        # keep record of transactions and FRU performance
+        self.fru_performance.append(fleet.get_fru_performance())
         self.transactions.append(fleet.get_transactions())
-
+        
     # run simulations for a scenario
     def run_scenario(self):
         print('SCENARIO {}'.format(self.scenario_number+1))
@@ -220,13 +222,13 @@ class Simulation:
         # collect inputs
         inputs = pandas.concat([self.details_inputs, self.scenario_inputs])
 
-        # average the run power
-        powers = pandas.concat(self.powers)
-        power_gb = powers.merge(self.phases, how='left', on='site').groupby(['phase', 'date'])
-        power_summary_mean = power_gb.mean().reset_index()
-        power_summary_max = power_gb.max().reset_index()
-        power_summary_min = power_gb.min().reset_index()
-        power_summary = power_summary_mean.drop('site', axis='columns')
+        # average the run performance
+        performance = pandas.concat(self.site_performance)
+        performance_gb = performance.merge(self.phases, how='left', on='site').groupby(['phase', 'date']) #'year'
+        performance_summary_mean = performance_gb.mean().reset_index()
+        performance_summary_max = performance_gb.max().reset_index()
+        performance_summary_min = performance_gb.min().reset_index()
+        performance_summary = performance_summary_mean.drop('site', axis='columns')
 
         # average the residual value
         residuals = pandas.concat(self.residuals)
@@ -238,7 +240,14 @@ class Simulation:
         cost_summary = costs.merge(self.phases, how='left', on='site').groupby(['year', 'phase', 'action']).mean().reset_index()
         cost_summary = cost_summary.drop('site', axis='columns')
       
-        # pull last transaction log
+        # pull the last FRU performance
+        fru_performance = self.fru_performance[-1]
+        fru_power_sample = pandas.concat([fru_performance[site_number]['power'] for site_number in fru_performance],
+                                         ignore_index=True, sort=False)
+        fru_efficiency_sample = pandas.concat([fru_performance[site_number]['efficiency'] for site_number in fru_performance],
+                                              ignore_index=True, sort=False)
+
+        # pull last transaction log 
         transaction_sample = self.transactions[-1]
 
-        return inputs, power_summary, residual_summary, cost_summary, transaction_sample
+        return inputs, performance_summary, residual_summary, cost_summary, fru_power_sample, fru_efficiency_sample, transaction_sample

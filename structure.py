@@ -75,7 +75,7 @@ class SQLDB:
     # select cost for shop action
     def get_cost(self, action, date, model=None, mark=None, operating_time=None, power=None):
         where_list = ['action IS "{}"'.format(action),
-                       'date <= "{}"'.format(date)]
+                      'date <= "{}"'.format(date)]
         max_list = ['date']
         
         if model is not None:
@@ -105,21 +105,31 @@ class SQLDB:
         return cost
 
     # select rating of power module
-    def get_module_rating(self, module_model, module_mark):
-        sql = 'SELECT rating FROM Module WHERE module IS "{}" and mark IS "{}"'.format(module_model, module_mark)
+    def get_module_rating(self, model, mark):
+        sql = 'SELECT rating FROM Module WHERE model IS "{}" and mark IS "{}"'.format(model, mark)
         rating = pandas.read_sql(sql, self.connection).iloc[0].squeeze()
         return rating
 
+    # select new and bespoke options for overhauls
+    def get_module_bespokes(self, model, base, install_date):
+        where_list = [('model', 'IS', model),
+                      ('base', 'IS', base),
+                      ('bespoke', 'IS', 1),
+                      ('initial_date', '<=', install_date)]
+        wheres = ' AND '.join('({} {} "{}")'.format(this, to, that) for (this, to, that) in where_list)
+        sql = 'SELECT mark FROM Module WHERE {}'.format(model, base, install_date, wheres)
+        bespokes = pandas.read_sql(sql, self.connection).squeeze()
+        return bespokes
+
     # select nameplate of energy server
     def get_server_nameplate(self, server_model):
-        sql = 'SELECT nameplate FROM Server WHERE server IS "{}"'.format(server_model)
+        sql = 'SELECT nameplate FROM Server WHERE model IS "{}"'.format(server_model)
         nameplate = pandas.read_sql(sql, self.connection).iloc[0].squeeze()
         return nameplate
 
     # select power modules avaible to create at a date
-    def get_buildable_modules(self, install_date, bespoke=False, filtered=None, allowed=None):
-        wheres = ' AND NOT bespoke' if not bespoke else ''
-        sql = 'SELECT module, mark FROM Module WHERE initial_date <= "{}"'.format(install_date, wheres)
+    def get_buildable_modules(self, install_date, filtered=None, allowed=None):
+        sql = 'SELECT model, mark FROM Module WHERE initial_date <= "{}" AND NOT bespoke'.format(install_date)
         buildable_modules = pandas.read_sql(sql, self.connection)
 
         sql = 'SELECT DISTINCT model, mark FROM PowerCurve'
@@ -128,42 +138,80 @@ class SQLDB:
         efficiency_modules = pandas.read_sql(sql, self.connection)
         
         buildable_modules = buildable_modules[\
-            buildable_modules['module'].isin(power_modules['model']) &\
+            buildable_modules['model'].isin(power_modules['model']) &\
             buildable_modules['mark'].isin(power_modules['mark']) &\
-            buildable_modules['module'].isin(efficiency_modules['model']) &\
+            buildable_modules['model'].isin(efficiency_modules['model']) &\
             buildable_modules['mark'].isin(efficiency_modules['mark'])]
 
         if filtered is not None:
-            buildable_modules = buildable_modules[buildable_modules['module'].isin(filtered)]
+            buildable_modules = buildable_modules[buildable_modules['model'].isin(filtered)]
 
         if allowed is not None:
             buildable_modules = buildable_modules[\
-                buildable_modules['module'].isin(allowed['model']) &\
+                buildable_modules['model'].isin(allowed['model']) &\
                 buildable_modules['mark'].isin(allowed['mark'])]
 
         return buildable_modules
 
     # select power curves for a power module model
-    def get_power_curves(self, module_model, module_mark):
-        rating = self.get_module_rating(module_model, module_mark)
-        sql = 'SELECT percentile, quarter, kw FROM PowerCurve WHERE model IS "{}" and mark IS "{}"'.format(module_model, module_mark)
-        power_curves = pandas.read_sql(sql, self.connection).pivot(index='percentile', columns='quarter')['kw']
-        power_curves = power_curves.rename(columns={c: 3*c for c in power_curves.columns})
+    def get_power_curves(self, model, mark):
+        rating = self.get_module_rating(model, mark)
+        sql = 'SELECT percentile, month, quarter, kw FROM PowerCurve WHERE model IS "{}" and mark IS "{}"'.format(model, mark)
+
+        power_curves_periodic = pandas.read_sql(sql, self.connection)
+        
+        # determine if monthly or quarterly
+        quarterly = not power_curves_periodic['quarter'].apply(pandas.to_numeric, errors='coerce').dropna().empty
+        
+        # reshape and interpolate
+        power_curves = power_curves_periodic.pivot(index='percentile', columns='quarter' if quarterly else 'month')['kw']
         power_curves.insert(0, 0, rating)
-        power_curves = power_curves.reindex(range(0, power_curves.columns[-1]+1), axis='columns').interpolate(axis=1).transpose()
+
+        if quarterly:
+            power_curves = power_curves.rename(columns={c: 3*c for c in power_curves.columns})
+            power_curves = power_curves.reindex(range(0, power_curves.columns[-1]+1), axis='columns').interpolate(axis=1, limit_direction='backward')
+        power_curves = power_curves.transpose()
+
         return power_curves
 
     # select efficiency curves for a power module model
-    def get_efficiency_curve(self, module_model, module_mark):
-        sql = 'SELECT month, kw FROM EfficiencyCurve WHERE model IS "{}" and mark IS "{}"'.format(module_model, module_mark)
+    def get_efficiency_curve(self, model, mark):
+        sql = 'SELECT month, kw FROM EfficiencyCurve WHERE model IS "{}" and mark IS "{}"'.format(model, mark)
         efficiency_curve = pandas.read_sql(sql, self.connection)
         efficiency_curve.index = efficiency_curve.loc[:, 'month']-1
         efficiency_curve = efficiency_curve['kw']
         return efficiency_curve
 
+    # take existing data and scale to a new peak and stretch by an additional time period
+    def scale_and_stretch(self, base_data, scale_factor, stretch_extension):
+        scale = scale_factor is not None
+        stretch = stretch_extension is not None
+
+        periods_old = [c for c in base_data.columns if type(c) is int]
+        other_columns = [c for c in base_data.columns if c not in periods_old]
+
+        new_data = base_data.copy()[periods_old]
+
+        if stretch:
+            multiplier = (periods_old[-1]+stretch_extension-1)/(periods_old[-1]-1)
+            periods_new = [(c-1) * multiplier + 1 for c in periods_old]
+            new_data = new_data.rename(columns=dict(zip(periods_old, periods_new)))
+            periods_final = list(range(1, periods_old[-1]+stretch_extension + 1))
+            periods_reindex = periods_final + periods_new
+            periods_reindex.sort()
+            new_data = new_data.reindex(columns=list(set(periods_reindex))).interpolate(axis=1)
+            new_data = new_data.reindex(columns=periods_final)
+
+        if scale:
+            new_data = new_data.mul(scale_factor)
+                
+        adjusted_data = pandas.concat([base_data[other_columns], new_data], axis='columns')
+    
+        return adjusted_data
+
     # SQL code for matching on keys
     def where_matches(self, table_name, keys, pairs):
-        wheres = ' OR '.join('({})'.format(' AND '.join('("{}"."{}" IS "{}")'\
+        wheres = ' OR '.join('({})'.format(' AND '.join('({}.{} IS "{}")'\
             .format(table_name, k, pairs[k].iloc[i]) for k in keys)) for i in range(len(pairs)))
         return wheres
 
@@ -174,18 +222,18 @@ class SQLDB:
         pairs = data[keys].drop_duplicates()
         wheres = self.where_matches(table_name, keys, pairs)
         
-        sql = 'DELETE FROM "{}" WHERE {}'.format(table_name, wheres)
-        self.connection.execute(sql)
+        if len(wheres):
+            sql = 'DELETE FROM "{}" WHERE {}'.format(table_name, wheres)
+            self.connection.execute(sql)
 
         # add new data
-        if data is not None:
+        if (data is not None) and (not data.empty):
             data.to_sql(table_name, self.connection, if_exists='append', index=False)
         
         return
 
     # add new power curves
     def write_power_curves(self, power_curves):
-        ## check if power curves are already in?
         self.write_table('PowerCurve', ['model', 'mark'], power_curves)
         return
 
@@ -195,10 +243,14 @@ class SQLDB:
         return
 
     # copy values from within table
-    def duplicate_values(self, table_name, keys, changes):
-        pairs = pandas.DataFrame([c[0] for c in changes], columns=keys)
+    def duplicate_values(self, table_name, keys, changes, scale_factor=None, stretch_extension=None):
+        pairs = pandas.DataFrame([changes[c][0] for c in changes], columns=keys)
         wheres = self.where_matches(table_name, keys, pairs)
         copy_data = pandas.read_sql('SELECT * FROM "{}" WHERE {}'.format(table_name, where))
+
+        if (scale_factor is not None) or (stretch_extension is not None):
+            copy_data = self.scale_and_stretch(copy_data, scale_factor, stretch_extension)
+
         for value in changes:
             copy_data.loc[pandas.concat([copy_data[k] == v for (k, v) in zip(keys, value[0])], axis=1).all(1), keys] = value[1]
 
@@ -510,25 +562,48 @@ class ExcelSQL:
         self.excel_seer = ExcelSeer(path)
 
     # import new curves to database
-    def import_curves(self, curve_name):
-        table_name = {'power': 'PowerCurve', 'efficiency': 'EfficiencyCurve'}[curve_name]
-        period = {'power': 'quarter', 'efficiency': 'month'}[curve_name]
+    def import_curves(self, curve_name, period):
+        table_name = {'power': {'quarter': 'PowerCurveQ', 'month': 'PowerCurveM'},
+                      'efficiency': {'month': 'EfficiencyCurve'}}[curve_name][period]
 
         curves = self.excel_seer[(None, table_name)]
-        value_vars = [int(s) for s in curves.columns if (type(s) is str) and (s.isdigit())]
-        renames = {str(i): i for i in value_vars}
-        curves.rename(columns=renames, inplace=True)
-        curves_melted = curves.melt(id_vars=['model', 'mark', 'percentile'],
-                                    value_vars=value_vars,
-                                    var_name=period, value_name='kw')
+
+        # remove values without model and mark
+        if curves is not None:
+            curves = curves.dropna(how='any', subset=['model', 'mark'])
+
+            value_vars = [int(s) for s in curves.columns if (type(s) is str) and (s.isdigit())]
+            renames = {str(i): i for i in value_vars}
+            curves.rename(columns=renames, inplace=True)
+            curves_melted = curves.melt(id_vars=['model', 'mark', 'percentile'],
+                                        value_vars=value_vars,
+                                        var_name=period, value_name='kw')
+            
+            curves_melted.loc[:, 'kw'] = curves_melted['kw'].apply(pandas.to_numeric, errors='coerce')
+            curves_melted.drop_duplicates(inplace=True)
+
+        else:
+            curves_melted = None
+
         return curves_melted
 
     # import new power curves to database
     def import_power_curves(self):
-        power_curves = self.import_curves('power')
-        self.sql_db.write_power_curves(power_curves)
+        for period in ['month', 'quarter']:
+            power_curves = self.import_curves('power', period)
+            if power_curves is not None:
+                self.sql_db.write_power_curves(power_curves)
+        return
 
     # import new efficiency curves to database
     def import_efficiency_curves(self):
-        efficiency_curves = self.import_curves('efficiency')
-        self.sql_db.write_efficiency_curves(efficiency_curves)
+        for period in ['month']:
+            efficiency_curves = self.import_curves('efficiency', period)
+            if efficiency_curves is not None:
+                self.sql_db.write_efficiency_curves(efficiency_curves)
+        return
+
+    # import all new curves to database
+    def import_all_curves(self):
+        self.import_power_curves()
+        self.import_efficiency_curves()
