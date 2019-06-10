@@ -1,4 +1,4 @@
-# physical field replaceable unit power modules (FRUs) and energy servers (with enclosure cabinets)
+# physical field replaceable unit power modules (FRUs) and energy servers (with enclosure cabinets) 
 
 import pandas
 from dateutil.relativedelta import relativedelta

@@ -1,4 +1,4 @@
-# physical sites were energy servers are installed
+# physical sites were energy servers are installed 
 
 import pandas
 from dateutil.relativedelta import relativedelta
@@ -615,7 +615,7 @@ class Site:
             self.shop.store_fru(old_fru, self.number, server_e, enclosure_e)
         else:
             # put in a brand new FRU
-            new_fru = self.shop.best_fit_fru(server.model, self.get_date(), self.number, server_e, enclosure_e, initial=True)
+            new_fru = self.shop.best_fit_fru(server.model, self.get_date(), self.number, server_e, enclosure_e)
             self.replace_fru(server_e, enclosure_e, new_fru)
             
             # FRU was added to empty enclosure, so check for overloading

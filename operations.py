@@ -1,4 +1,4 @@
-# central warehouse for creating, storing and deploying components and fleet to manage all sites
+# central warehouse for creating, storing and deploying components and fleet to manage all sites 
 
 import pandas
 from dateutil.relativedelta import relativedelta

@@ -170,7 +170,7 @@ class SQLDB:
         if quarterly:
             power_curves = power_curves.rename(columns={c: 3*c for c in power_curves.columns})
             power_curves = power_curves.reindex(range(0, power_curves.columns[-1]+1), axis='columns').interpolate(axis=1, limit_direction='backward')
-        power_curves = power_curves.transpose()
+        power_curves = power_curves.transpose().dropna(how='all')
 
         return power_curves
 
@@ -179,7 +179,8 @@ class SQLDB:
         sql = 'SELECT month, kw FROM EfficiencyCurve WHERE model IS "{}" and mark IS "{}"'.format(model, mark)
         efficiency_curve = pandas.read_sql(sql, self.connection)
         efficiency_curve.index = efficiency_curve.loc[:, 'month']-1
-        efficiency_curve = efficiency_curve['kw']
+        efficiency_curve = efficiency_curve['kw'].dropna(how='all')
+
         return efficiency_curve
 
     # take existing data and scale to a new peak and stretch by an additional time period
@@ -187,27 +188,20 @@ class SQLDB:
         scale = scale_factor is not None
         stretch = stretch_extension is not None
 
-        periods_old = [c for c in base_data.columns if type(c) is int]
-        other_columns = [c for c in base_data.columns if c not in periods_old]
-
-        new_data = base_data.copy()[periods_old]
-
+        new_data = base_data.copy()
+        periods_old = list(new_data.index)
+        
         if stretch:
-            multiplier = (periods_old[-1]+stretch_extension-1)/(periods_old[-1]-1)
-            periods_new = [(c-1) * multiplier + 1 for c in periods_old]
-            new_data = new_data.rename(columns=dict(zip(periods_old, periods_new)))
+            multiplier = (periods_old[-1] + stretch_extension) / periods_old[-1]
+            periods_new = [c * multiplier for c in periods_old]
+            new_data = new_data.rename(dict(zip(periods_old, periods_new)))
             periods_final = list(range(1, periods_old[-1]+stretch_extension + 1))
-            periods_reindex = periods_final + periods_new
-            periods_reindex.sort()
-            new_data = new_data.reindex(columns=list(set(periods_reindex))).interpolate(axis=1)
-            new_data = new_data.reindex(columns=periods_final)
+            new_data = new_data.reindex(sorted(set(periods_final + periods_new))).interpolate(limit_direction='backward').reindex(periods_final)
 
         if scale:
             new_data = new_data.mul(scale_factor)
-                
-        adjusted_data = pandas.concat([base_data[other_columns], new_data], axis='columns')
-    
-        return adjusted_data
+                   
+        return new_data
 
     # SQL code for matching on keys
     def where_matches(self, table_name, keys, pairs):
@@ -243,18 +237,39 @@ class SQLDB:
         return
 
     # copy values from within table
-    def duplicate_values(self, table_name, keys, changes, scale_factor=None, stretch_extension=None):
-        pairs = pandas.DataFrame([changes[c][0] for c in changes], columns=keys)
-        wheres = self.where_matches(table_name, keys, pairs)
-        copy_data = pandas.read_sql('SELECT * FROM "{}" WHERE {}'.format(table_name, where))
+    def duplicate_curve(self, curve_name, changes, scale_factor=None, stretch_extension=None):  
+        for change in changes:
+            keys = change['change'].keys()
 
-        if (scale_factor is not None) or (stretch_extension is not None):
-            copy_data = self.scale_and_stretch(copy_data, scale_factor, stretch_extension)
+            scale_factor = change.get('scale')
+            stretch_extension = change.get('stretch')
 
-        for value in changes:
-            copy_data.loc[pandas.concat([copy_data[k] == v for (k, v) in zip(keys, value[0])], axis=1).all(1), keys] = value[1]
+            if curve_name == 'power':
+                table_name = 'PowerCurve'
+                curve = self.get_power_curves(change['change']['model'][0], change['change']['mark'][0])
+            elif curve_name == 'efficiency':
+                table_name = 'EfficiencyCurve'
+                curve = self.get_efficiency_curve(change['change']['model'][0], change['change']['mark'][0])
 
-        self.write_table(table_name, keys, copy_data)
+            if (scale_factor is not None) or (stretch_extension is not None):
+                curve = self.scale_and_stretch(curve, scale_factor, stretch_extension)
+
+            period = curve.index.name
+            curve.insert(0, period, curve.index+1)
+
+            if curve_name == 'power':
+                curve = curve.melt(id_vars = period, value_name = 'kw')
+                if 'quarter' not in curve.columns:
+                    curve.insert(curve.columns.to_list().index('month') + 1, 'quarter', pandas.np.nan)
+                elif 'month' not in curve.columns:
+                    curve.insert(curve.columns.to_list().index('quarter'), 'month', pandas.np.nan)
+                
+            curve.insert(0, 'model', change['change']['model'][-1])
+            curve.insert(1, 'mark', change['change']['mark'][-1])
+            
+            self.write_table(table_name, keys, curve)
+
+        return
 
 # object that finds and returns tables by name in Excel
 class ExcelSeer:
