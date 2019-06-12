@@ -164,3 +164,7 @@ class PowerModules:
         marks = self.get_marks(model, install_date)
         energies = [self.get_energy(model, mark, time_needed) for mark in marks]
         return energies
+
+# details of energy servers
+class EnergyServers:
+    pass

@@ -189,13 +189,13 @@ class SQLDB:
         stretch = stretch_extension is not None
 
         new_data = base_data.copy()
-        periods_old = list(new_data.index)
+        periods_old = new_data.index.to_list()
         
         if stretch:
             multiplier = (periods_old[-1] + stretch_extension) / periods_old[-1]
             periods_new = [c * multiplier for c in periods_old]
             new_data = new_data.rename(dict(zip(periods_old, periods_new)))
-            periods_final = list(range(1, periods_old[-1]+stretch_extension + 1))
+            periods_final = list(range(periods_old[-1]+stretch_extension + 1))
             new_data = new_data.reindex(sorted(set(periods_final + periods_new))).interpolate(limit_direction='backward').reindex(periods_final)
 
         if scale:
@@ -237,13 +237,14 @@ class SQLDB:
         return
 
     # copy values from within table
-    def duplicate_curve(self, curve_name, changes, scale_factor=None, stretch_extension=None):  
+    def duplicate_curve(self, curve_name, changes):  
         for change in changes:
+            # get change values
             keys = change['change'].keys()
-
             scale_factor = change.get('scale')
             stretch_extension = change.get('stretch')
 
+            # pull data from database
             if curve_name == 'power':
                 table_name = 'PowerCurve'
                 curve = self.get_power_curves(change['change']['model'][0], change['change']['mark'][0])
@@ -251,12 +252,19 @@ class SQLDB:
                 table_name = 'EfficiencyCurve'
                 curve = self.get_efficiency_curve(change['change']['model'][0], change['change']['mark'][0])
 
+            # scale and stretch data if required
             if (scale_factor is not None) or (stretch_extension is not None):
                 curve = self.scale_and_stretch(curve, scale_factor, stretch_extension)
 
-            period = curve.index.name
-            curve.insert(0, period, curve.index+1)
+            # convert series to dataframe
+            if curve_name == 'efficiency':
+                curve = pandas.DataFrame(curve)
 
+            # add period
+            period = curve.index.name
+            curve.insert(0, period, curve.index + 1)    
+
+            # pivot and add alternate period
             if curve_name == 'power':
                 curve = curve.melt(id_vars = period, value_name = 'kw')
                 if 'quarter' not in curve.columns:
@@ -264,12 +272,14 @@ class SQLDB:
                 elif 'month' not in curve.columns:
                     curve.insert(curve.columns.to_list().index('quarter'), 'month', pandas.np.nan)
                 
+            # add module descriptors
             curve.insert(0, 'model', change['change']['model'][-1])
             curve.insert(1, 'mark', change['change']['mark'][-1])
             
+            # add to database
             self.write_table(table_name, keys, curve)
 
-        return
+        return curve
 
 # object that finds and returns tables by name in Excel
 class ExcelSeer:
