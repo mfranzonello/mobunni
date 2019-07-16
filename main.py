@@ -22,9 +22,9 @@ def get_structure(structure_db):
 # build details
 def get_details(excel_int):
     print ('Getting project details')
-    n_sites, n_runs, n_phases, wait_time = excel_int.get_details()
+    n_sites, n_years, n_runs = excel_int.get_details()
     n_scenarios = excel_int.count_scenarios()
-    details = Details(n_sites, n_runs, n_scenarios, n_phases, wait_time)
+    details = Details(n_sites, n_years, n_runs, n_scenarios)
 
     return details
 

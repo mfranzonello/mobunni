@@ -8,20 +8,18 @@ from operations import Shop, Fleet
 
 # common details across project
 class Details:
-    def __init__(self, n_sites, n_runs, n_scenarios, n_phases, wait_time):
+    def __init__(self, n_sites, n_years, n_runs, n_scenarios):
         self.n_sites = n_sites
+        self.n_years = n_years
         self.n_runs = n_runs
         self.n_scenarios = n_scenarios
-        self.n_phases = n_phases
-        self.wait_time = wait_time
-
+        
     # save common inputs from all scenarios
     def get_inputs(self):
         inputs = pandas.DataFrame(columns=['Input', 'Value'],
                                   data=[['# of sites', self.n_sites],
+                                        ['# of phase years', self.n_years],
                                         ['# of MC runs', self.n_runs],
-                                        ['# of phases', self.n_phases],
-                                        ['wait time between phases', self.wait_time],
                                         ])
         return inputs
 
@@ -79,12 +77,7 @@ class Simulation:
         self.n_runs = details.n_runs
         self.n_scenarios = details.n_scenarios
         self.n_sites = details.n_sites
-
-        self.n_phases = details.n_phases
-        self.wait_time = details.wait_time
-
-        phase_sites = zip([y for x in range(1, details.n_phases+1) for y in [x]*details.n_sites], range(1, details.n_sites*details.n_phases+1))
-        self.phases = pandas.DataFrame(phase_sites, columns=['phase','site'])
+        self.n_years = details.n_years
 
         self.sql_db = sql_db
         
@@ -115,23 +108,34 @@ class Simulation:
         
     # create operations and cost objects
     def set_up_fleet(self):
-        fleet = Fleet()
+        system_sizes, system_dates = self.sql_db.get_system_sizes()
+        min_date = self.sql_db.get_earliest_date()
+        fleet = Fleet(self.target_size, self.n_sites, self.n_years, system_sizes, system_dates, self.start_date, min_date)
+
         shop = Shop(self.sql_db, self.start_date, junk_level=self.junk_level, best=self.best, allowed_fru_models=self.allowed_fru_models)
         fleet.add_shop(shop)
+
+        # adjust start date to account for sites being installed before the target site
+        self.start_date -= relativedelta(months=fleet.target_month)
+
         return fleet, shop
-
+       
     # create a site at the beginning of a phase
-    def set_up_site(self, fleet, phase, month):
+    def set_up_site(self, fleet, month):
         site_number = len(fleet.sites)
-        print('Constructing site {}'.format(site_number+1))
+        print('Constructing site {}'.format(site_number+1), end='')
 
-        site = Site(site_number, fleet.shop, self.target_size, self.start_date + relativedelta(months=month),
+        # pick site size according to distribution for all but one specific site
+        site_size = fleet.install_sizes[site_number]
+        print(' | {}kW'.format(site_size))
+
+        site = Site(site_number, fleet.shop, site_size, self.start_date + relativedelta(months=month),
                     self.contract_length, self.limits, self.repair, self.server_model,
                     max_enclosures=self.max_enclosures, start_month=self.start_month, start_ctmo=1.0, non_replace=self.non_replace,
                     thresholds=self.sql_db.get_thresholds()) ## START_CTMO
 
-        if (phase == 1) and len(self.existing_servers['df']):
-            # first phase has exisitng servers
+        if (site_number == fleet.target_site) and len(self.existing_servers['df']):
+            # target site has exisitng servers
             site.populate(self.existing_servers)
         else:
             # build site from scratch
@@ -160,6 +164,7 @@ class Simulation:
         # display what happened
         last_transaction = fleet.get_transactions(site_number=site.number, last_date=transaction_date)
         if len(last_transaction):
+            print('MONTHLY SUMMARY')
             print(last_transaction)
 
         return decommissioned
@@ -167,7 +172,7 @@ class Simulation:
     # save results of a simulation
     def append_summaries(self, fleet):
         # store fleet power, efficiency and costs
-        self.site_performance.extend(fleet.summarize_site_performance())
+        self.site_performance.append(fleet.summarize_site_performance())
         self.residuals.append(fleet.summarize_residuals())
         self.costs.append(fleet.summarize_transactions())
 
@@ -184,20 +189,13 @@ class Simulation:
             # create fleet related objects
             fleet, shop = self.set_up_fleet()
 
-            phase = 0
-
             # run through all contracts
-            for month in range(self.contract_length*12 + (self.n_phases-1)*self.wait_time + 1):
+            for month in range(self.contract_length*12 + fleet.target_month + 1): #+ self.n_years ## variable length contracts?
 
-                # enter new phase after a specified period
-                if (month < self.n_phases*self.wait_time - 1) and (month % self.wait_time == 0):
-                    phase += 1
-                    print('PHASE {}'.format(phase))
-
-                    # add sites
-                    for site_n in range(self.n_sites):
-                        site = self.set_up_site(fleet, phase, month)
-                        fleet.add_site(site)
+                # install site at sampled months
+                for site_n in range(fleet.install_months.get(month, 0)):
+                    site = self.set_up_site(fleet, month)
+                    fleet.add_site(site)
                         
                 for site in fleet.sites:
                     # check site status and move FRUs as required
@@ -205,7 +203,7 @@ class Simulation:
                     if decommissioned:
                         fleet.remove_site(site)
                    
-                # make units in shop deployable
+                # make units in shop deployable.phases
                 fleet.shop.advance()
 
             # get value of remaining FRUs
@@ -224,28 +222,23 @@ class Simulation:
 
         # average the run performance
         performance = pandas.concat(self.site_performance)
-        performance_gb = performance.merge(self.phases, how='left', on='site').groupby(['phase', 'date']) #'year'
+        performance_gb = performance.drop(['site', 'year'], axis='columns').groupby(['date'])
         performance_summary_mean = performance_gb.mean().reset_index()
         performance_summary_max = performance_gb.max().reset_index()
         performance_summary_min = performance_gb.min().reset_index()
-        performance_summary = performance_summary_mean.drop('site', axis='columns')
+        performance_summary = performance_summary_mean
 
         # average the residual value
         residuals = pandas.concat(self.residuals)
-        residual_summary = residuals.merge(self.phases, how='left', on='site').groupby(['phase']).mean().reset_index()
-        residual_summary = residual_summary.drop('site', axis='columns')
+        residual_summary = residuals.mean()
         
         # average the run costs
         costs = pandas.concat(self.costs)
-        cost_summary = costs.merge(self.phases, how='left', on='site').groupby(['year', 'phase', 'action']).mean().reset_index()
-        cost_summary = cost_summary.drop('site', axis='columns')
+        cost_summary = costs[costs['target']].drop('target', axis='columns').groupby(['year', 'action']).mean().reset_index()
       
         # pull the last FRU performance
-        fru_performance = self.fru_performance[-1]
-        fru_power_sample = pandas.concat([fru_performance[site_number]['power'] for site_number in fru_performance],
-                                         ignore_index=True, sort=False)
-        fru_efficiency_sample = pandas.concat([fru_performance[site_number]['efficiency'] for site_number in fru_performance],
-                                              ignore_index=True, sort=False)
+        fru_power_sample = self.fru_performance[-1]['power'].drop('site', axis='columns')
+        fru_efficiency_sample = self.fru_performance[-1]['efficiency'].drop('site', axis='columns')
 
         # pull last transaction log 
         transaction_sample = self.transactions[-1]

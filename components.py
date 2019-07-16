@@ -164,10 +164,11 @@ class Enclosure:
 
 # housing unit for power modules
 class Server:
-    def __init__(self, serial, number, model, nameplate):
+    def __init__(self, serial, number, model, model_number, nameplate):
         self.serial = serial
         self.number = number
         self.model = model
+        self.model_number = model_number
         self.nameplate = nameplate
         self.enclosures = []
 

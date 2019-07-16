@@ -2,6 +2,7 @@
 
 import pandas
 from dateutil.relativedelta import relativedelta
+from random import randrange
 from powerful import PowerCurves, PowerModules
 from components import FRU, Enclosure, Server
 
@@ -220,28 +221,46 @@ class Shop:
         else:
             # there is not a FRU available, so create a new one
             if self.best:
-                model, mark = self.power_modules.get_model(allowed_modules, install_date,
+                model, mark = self.power_modules.get_model(install_date,
                                                            power_needed=power_needed, energy_needed=energy_needed, time_needed=time_needed,
-                                                           best=self.best, allowed_fru_models=self.allowed_fru_models)
+                                                           best=self.best, server_model=server_model, allowed_fru_models=self.allowed_fru_models)
             else:
-                model, mark = self.power_modules.get_model(allowed_modules, install_date,
+                model, mark = self.power_modules.get_model(install_date,
                                                            power_needed=power_needed, energy_needed=energy_needed, time_needed=time_needed,
-                                                           bespoke=not initial, allowed_fru_models=self.allowed_fru_models)
+                                                           bespoke=not initial, server_model=server_model, allowed_fru_models=self.allowed_fru_models)
             fru = self.create_fru(model, mark, install_date, site_number, server_number, enclosure_number, initial)
 
         return fru
 
+    # get model types to most closely match target size
+    def prepare_servers(self, server_model_class, target_size):
+        # check if server model class is available in given year, else use next best
+        latest_server_model_class = self.sql_db.get_latest_server_model(self.date, target_model=server_model_class)
+        
+        # get default nameplate sizes   
+        server_nameplates = self.sql_db.get_server_nameplates(latest_server_model_class)
+
+        # determine max number of various size servers could fit
+        server_nameplates.loc[:, 'fit'] = (target_size / server_nameplates['nameplate']).astype(int)
+        # find lost potential because of server sizes
+        server_nameplates.loc[:, 'loss'] = target_size - (server_nameplates['nameplate'] * server_nameplates['fit'])
+        # return best fit model to minimize potential loss
+        server_model_number, server_count = server_nameplates.sort_values('loss')[['model_number', 'fit']].iloc[0]
+        return server_model_number, server_count
+
+
     # create a new energy server
-    def create_server(self, site_number, server_number, server_model):
+    def create_server(self, site_number, server_number, server_model_number=None, server_model_class=None, nameplate_needed=0):
         serial = self.get_serial('ES')
 
-        nameplate = self.get_server_nameplate(server_model)
-        server = Server(serial, server_number, server_model, nameplate)
+        server_model = self.sql_db.get_server_model(server_model_number, server_model_class, nameplate_needed)
+               
+        server = Server(serial, server_number, server_model['model'], server_model['model_number'], server_model['nameplate'])
 
         cost = self.get_cost('install server')
 
-        self.transact(server.serial, server_model, 'SERVER', nameplate, 0,
-                      'installed ES', 'at', site_number, server_number, -1, cost)
+        self.transact(server.serial, server.model, 'SERVER', server.nameplate, 0,
+                      'installed ES', 'at', site_number, server.number, -1, cost)
 
         return server
 
@@ -279,8 +298,8 @@ class Shop:
             if fru.is_dead():
                 self.junk.append(fru)
                
-                self.transact(fru.serial, fru.model, fru.mark, fru.get_power(), 'junked FRU',
-                          '', -1, -1, -1, 0)
+                self.transact(fru.serial, fru.model, fru.mark, fru.get_power(), fru.get_efficiency(),
+                              'junked FRU', '', -1, -1, -1, 0)
 
             else:
                 self.deployable.append(fru)
@@ -290,12 +309,50 @@ class Shop:
 
 # collection of sites and a shop to move FRUs between
 class Fleet:
-    def __init__(self):
+    def __init__(self, target_size, total_sites, install_years, system_sizes, system_dates, start_date, min_date):
+        self.total_sites = total_sites
+        self.install_years = install_years
+        
+        self.target_size = target_size
+        self.target_site = 0
+        self.target_month = 0
+        self.install_sizes = []
+        self.install_months = []
+
         self.sites = []
         self.shop = None
-        self.site_performance = []
+        self.site_performance = {}
         self.fru_performance = {}
 
+        self.system_sizes = system_sizes
+        self.system_dates = system_dates
+
+        self.set_up_install_sizes()
+        self.set_up_install_months()
+        self.set_up_target_site(start_date, min_date)
+
+    # pick sizes based on distribution for sites other than target
+    def set_up_install_sizes(self):
+        self.install_sizes = self.system_sizes.sample(self.total_sites - 1, replace=True).to_list()
+        
+    # pick months based on distribution for site installation
+    def set_up_install_months(self):
+        # max time to install
+        population_dates = self.system_dates[self.system_dates >= self.system_dates.max() - relativedelta(years=self.install_years)]
+        sampled_dates = population_dates.sample(self.total_sites, replace=self.total_sites >= len(population_dates))
+        install_months = (sampled_dates - sampled_dates.min()).dt.days.div(30).round().astype(int).sort_values()
+        self.install_months = install_months.value_counts(sort=False)
+
+    # pick target install sequence order
+    def set_up_target_site(self, start_date, min_date):
+        delta = relativedelta(start_date, min_date)
+        max_month = delta.years*12 + delta.months
+
+        # pick a spot for the target site where the initial install date works
+        self.target_site = randrange(len(self.install_months[self.install_months <= max_month]))
+        self.target_month = self.install_months.iloc[self.target_site]
+        self.install_sizes.insert(self.target_site, self.target_size)
+        
     # add shop to fleet
     def add_shop(self, shop):
         self.shop = shop
@@ -313,7 +370,7 @@ class Fleet:
 
     # store site power and efficiency
     def store_site_performance(self, site):
-        self.site_performance.append(site.performance)
+        self.site_performance[site.number] = site.performance
 
     # store FRU power and efficiency
     def store_fru_performance(self, site):
@@ -336,8 +393,22 @@ class Fleet:
             return transactions
         return
 
+    # return series of value if site is target site
+    def identify_target(self, sites, site_col='site', site_adder=True, site_number='target', target_col='target'):
+        if site_number == 'target':
+            site_number = self.target_site
+        
+
+        target_series = sites[site_col] == (site_number + site_adder)
+        target_identified = pandas.concat([sites, target_series.rename(target_col)], axis='columns')
+
+        return target_identified
+
     # combine transactions by year, site and action
-    def summarize_transactions(self):
+    def summarize_transactions(self, site_number='target'):
+        if site_number == 'target':
+            site_number = self.target_site
+
         transactions_yearly = self.get_transactions()
         transactions_yearly.insert(0, 'year', pandas.to_datetime(transactions_yearly['date']).dt.year)
         transactions_gb = transactions_yearly[['year', 'site', 'action', 'service cost']].groupby(['year', 'site', 'action'])
@@ -347,25 +418,40 @@ class Fleet:
         
         transactions_summarized = pandas.concat([transactions_count, transactions_sum], axis='columns').reset_index()
 
-        return transactions_summarized
+        transactions = self.identify_target(transactions_summarized)
+
+        return transactions
 
     # return power and efficiency of all sites
-    def summarize_site_performance(self):
+    def summarize_site_performance(self, site_number='target'):
+        if site_number == 'target':
+            site_number = self.target_site
+
         for site in self.sites:
             # add TMO and eff of any site that hasn't expired
             self.store_site_performance(site)
 
-        return self.site_performance
+        site_performance = self.site_performance[site_number]
 
-    def get_fru_performance(self):
+        return site_performance
+
+    def get_fru_performance(self, site_number='target'):
+        if site_number == 'target':
+            site_number = self.target_site
+
         for site in self.sites:
             # add FRU perfromance of any site that hasn't expired
             self.store_fru_performance(site)
-        
-        return self.fru_performance
+       
+        fru_performance = self.fru_performance[site_number]
+
+        return fru_performance
 
     # return residual value
-    def summarize_residuals(self):
+    def summarize_residuals(self, site_number='target'):
+        if site_number == 'target':
+            site_number = self.target_site
+
         if self.shop is not None:
-            residuals = pandas.DataFrame(data=zip(self.shop.residuals.index+1, self.shop.residuals), columns=['site', 'residual'])
+            residuals = pandas.DataFrame(data=self.shop.residuals[self.shop.residuals.index==site_number], columns=['residual'])
             return residuals

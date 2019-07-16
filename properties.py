@@ -238,12 +238,12 @@ class Site:
     def populate_new(self, plus_one_empty):
         # no existing FRUs, start site from scratch
         # divide power needed by server nameplate to determine number of servers needed
-        nameplate = self.shop.get_server_nameplate(self.server_model)
-        servers_needed = ceil(self.target_size / nameplate)
+        server_model_number, servers_needed = self.shop.prepare_servers(self.server_model, self.target_size)
+        #servers_needed = ceil(self.target_size / nameplate)
 
         # add servers needed to hit target size
         for server_number in range(servers_needed):
-            server = self.shop.create_server(self.number, server_number, self.server_model)
+            server = self.shop.create_server(self.number, server_number, server_model_number=server_model_number)
             for enclosure_number in range(self.max_enclosures):
                 plus_one = plus_one_empty and (enclosure_number == self.max_enclosures-1)
                 enclosure = self.shop.create_enclosure(self.number, server, enclosure_number, plus_one=plus_one)

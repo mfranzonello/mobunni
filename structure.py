@@ -28,9 +28,9 @@ class Project:
     def ask_project(self):
         if len(self.projects):
             print('Available projects:')
-            count = 0
 
             while self.name is None:
+                count = 0
                 for project in self.projects:
                     count += 1
                     print('[{}]: {}'.format(count, project))
@@ -54,6 +54,12 @@ class SQLDB:
         self.engine = create_engine('sqlite:///{}'.format(structure_db))
         self.connection = self.engine.connect()
 
+    # earliest historical date there is an energy server and power module available 
+    def get_earliest_date(self):
+        sql = 'SELECT initial_date FROM Module ORDER BY initial_date LIMIT 1'
+        earliest_date = pandas.read_sql(sql, self.connection, parse_dates=['initial_date']).squeeze()
+        return earliest_date
+
     # select a table from the database
     def get_table(self, table):
         sql = 'SELECT * FROM {}'.format(table)
@@ -66,8 +72,20 @@ class SQLDB:
         thresholds = pandas.read_sql(sql, self.connection, index_col='item').squeeze()
         return thresholds
 
+    # select latest energy server model
+    def get_latest_server_model(self, install_date, target_model=None):
+        sql = 'SELECT model FROM Module WHERE initial_date < "{}" ORDER BY rating DESC'.format(install_date)
+        server_models = pandas.read_sql(sql, self.connection)
+        
+        if (target_model is not None) and (target_model in server_models['model'].to_list()):
+            server_model = target_model
+        else:
+            server_model = server_model['model'].iloc[0]
+
+        return server_model
+
     # select power modules compatible with server model
-    def get_compatible_modules(self, server_model, allowed=None):
+    def get_compatible_modules(self, server_model):
         sql = 'SELECT module FROM Compatibility WHERE server IS "{}"'.format(server_model)
         allowed_modules = pandas.read_sql(sql, self.connection).squeeze()
         return allowed_modules
@@ -121,14 +139,47 @@ class SQLDB:
         bespokes = pandas.read_sql(sql, self.connection).squeeze()
         return bespokes
 
-    # select nameplate of energy server
-    def get_server_nameplate(self, server_model):
-        sql = 'SELECT nameplate FROM Server WHERE model IS "{}"'.format(server_model)
-        nameplate = pandas.read_sql(sql, self.connection).iloc[0].squeeze()
-        return nameplate
+    # select default server sizes
+    def get_server_nameplates(self, server_model_class):
+        sql = 'SELECT model_number, nameplate FROM Server WHERE standard IS 1'
+        server_details = pandas.read_sql(sql, self.connection)
+        server_nameplates = server_details.sort_values('nameplate', ascending=False)
+        return server_nameplates
+
+    # select server model based on model number or model class + nameplate
+    def get_server_model(self, server_model_number=None, server_model_class=None, nameplate_needed=0):
+        sql = 'SELECT model, model_number, nameplate, enclosures, plus_one FROM Server '
+        
+        if server_model_number is not None:
+            sql += 'WHERE model_number IS "{}"'.format(server_model_number)
+
+        else:
+            sql += 'WHERE (model IS "{}") AND (standard IS NOT -1)'.format(server_model_class)
+
+        server_details = pandas.read_sql(sql, self.connection)
+
+        if server_model_number is None:
+            if len(server_details[\
+                    (server_details['nameplate'] == nameplate_needed) & \
+                    (server_details['standard'] == 1)]):
+                server_details = server_details[\
+                    (server_details['nameplate'] == nameplate_needed) & \
+                    (server_details['standard'] == 1)].iloc[0]
+            elif len(server_details[\
+                    (server_details['nameplate'] == nameplate_needed) & \
+                    (server_details['plus_one'] == 1)]):
+                server_details = server_details[\
+                    (server_details['nameplate'] == nameplate_needed) & \
+                    (server_details['plus_one'] == 1)].sort_values('enclosures')
+            else:
+                server_details = server_details[server_details['nameplate'] <= nameplate_needed].sort_values(['nameplate', 'plus_one', 'enclosures'], ascending=False)
+                
+        server_model = server_details.iloc[0]
+
+        return server_model
 
     # select power modules avaible to create at a date
-    def get_buildable_modules(self, install_date, filtered=None, allowed=None):
+    def get_buildable_modules(self, install_date, server_model=None, allowed=None):
         sql = 'SELECT model, mark FROM Module WHERE initial_date <= "{}" AND NOT bespoke'.format(install_date)
         buildable_modules = pandas.read_sql(sql, self.connection)
 
@@ -142,6 +193,8 @@ class SQLDB:
             buildable_modules['mark'].isin(power_modules['mark']) &\
             buildable_modules['model'].isin(efficiency_modules['model']) &\
             buildable_modules['mark'].isin(efficiency_modules['mark'])]
+
+        filtered = self.get_compatible_modules(server_model)
 
         if filtered is not None:
             buildable_modules = buildable_modules[buildable_modules['model'].isin(filtered)]
@@ -182,6 +235,14 @@ class SQLDB:
         efficiency_curve = efficiency_curve['kw'].dropna(how='all')
 
         return efficiency_curve
+
+    # select system sizes and full power date of historical distribution
+    def get_system_sizes(self):
+        sql = 'SELECT system_size, full_power_date FROM Sites'
+        systems = pandas.read_sql(sql, self.connection, parse_dates=['full_power_date'])
+        system_sizes = systems['system_size']
+        system_dates = systems['full_power_date']
+        return system_sizes, system_dates
 
     # take existing data and scale to a new peak and stretch by an additional time period
     def scale_and_stretch(self, base_data, scale_factor, stretch_extension):
@@ -469,12 +530,12 @@ class ExcelInt:
     def get_details(self, col=1):
         details_name = self.details_sheet
 
-        keys = {'n_sites': int, 'n_runs': int, 'n_phases': int, 'wait_time': int}
+        keys = {'n_sites': int, 'n_years': int, 'n_runs': int}
         values = self.get_sheet_named_ranges(details_name, keys)
 
-        n_sites, n_runs, n_phases, wait_time = values
+        n_sites, n_years, n_runs = values
 
-        return n_sites, n_runs, n_phases, wait_time
+        return n_sites, n_years, n_runs
 
     # return specific details of scenario
     def get_scenario(self, scenario=0, col=1):
