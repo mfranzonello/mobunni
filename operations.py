@@ -251,16 +251,22 @@ class Shop:
 
     # create a new energy server
     def create_server(self, site_number, server_number, server_model_number=None, server_model_class=None, nameplate_needed=0):
+        # get cost to create a server
+        cost = self.get_cost('install server')
+
         serial = self.get_serial('ES')
 
         server_model = self.sql_db.get_server_model(server_model_number, server_model_class, nameplate_needed)
-               
+        
         server = Server(serial, server_number, server_model['model'], server_model['model_number'], server_model['nameplate'])
-
-        cost = self.get_cost('install server')
 
         self.transact(server.serial, server.model, 'SERVER', server.nameplate, 0,
                       'installed ES', 'at', site_number, server.number, -1, cost)
+
+        enclosures = self.create_enclosures(self, site_number, server, enclosure_count=server_model['enclosures'], plus_one_count=server_model['plus_one'])
+
+        for enclosure in enclosures:
+            server.add_enclosure(enclosure)
 
         return server
 
@@ -278,15 +284,20 @@ class Shop:
         return nameplate
 
     # create an enclosure cabinent to add to a server to house a FRU
-    def create_enclosure(self, site_number, server, enclosure_number, plus_one=False):
-        serial = self.get_serial('ENC')
-        enclosure = Enclosure(serial, enclosure_number)
-        cost_action = 'initialize enclosure' if not plus_one else 'add enclosure'
-        cost = self.get_cost(cost_action)
-        self.transact(serial, server.model, 'ENCLOSURE', 0, 0,
-                      'add enclosure', 'at', site_number, server.number, enclosure.number, cost)
+    def create_enclosures(self, site_number, server, start_number=0, enclosure_count=0, plus_one_count=0):
+        # get cost per enclosure
+        cost_action = 'initialize enclosure' if not plus_one else 'add enclosure' **
+        cost = enclosure_count * self.get_cost(cost_action) + plus_one_count 
+        
+        # create enclosures
+        enclosures = []
+        for c in range(enclosure_count):
+            serial = self.get_serial('ENC')
+            enclosures.append(Enclosure(serial, enclosure_number))
+            self.transact(serial, server.model, 'ENCLOSURE', 0, 0,
+                          'add enclosure', 'at', site_number, server.number, enclosure.number, cost)
 
-        return enclosure
+        return enclosures
 
     # all FRUs in storage become deployable after one period
     def advance(self):

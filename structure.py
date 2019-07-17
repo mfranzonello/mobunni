@@ -238,7 +238,7 @@ class SQLDB:
 
     # select system sizes and full power date of historical distribution
     def get_system_sizes(self):
-        sql = 'SELECT system_size, full_power_date FROM Sites'
+        sql = 'SELECT system_size, full_power_date FROM Site'
         systems = pandas.read_sql(sql, self.connection, parse_dates=['full_power_date'])
         system_sizes = systems['system_size']
         system_dates = systems['full_power_date']

@@ -199,6 +199,7 @@ class Simulation:
                         
                 for site in fleet.sites:
                     # check site status and move FRUs as required
+                    ##print('Inspecting site {}'.format(site.number + 1))
                     decommissioned = self.inspect_site(fleet, site)
                     if decommissioned:
                         fleet.remove_site(site)
