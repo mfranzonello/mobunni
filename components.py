@@ -1,4 +1,6 @@
-# physical field replaceable unit power modules (FRUs) and energy servers (with enclosure cabinets) 
+# physical field replaceable unit power modules (FRUs) and energy servers (with enclosure cabinets)
+
+import time
 
 import pandas
 from dateutil.relativedelta import relativedelta
@@ -26,7 +28,7 @@ class FRU:
         self.set_curves(power_curves, efficiency_curve)
 
         self.power_curve = self.power_curves.pick_curve(allowed=[0,1], fit=fit)
-        
+
     def __str__(self):
         if self.is_dead():
             age_string = ' XXX '
@@ -132,6 +134,11 @@ class FRU:
         self.set_curves(power_curves, efficiency_curve)
         # reset month
         self.month = 0
+
+    # create a copy of the base FRU
+    def copy(self, serial, install_date, current_date, fit=None):
+        fru = FRU(serial, self.model, self.base, self.mark, self.power_curves, self.efficiency_curve, install_date, current_date, fit=fit)
+        return fru
         
 # cabinet in energy server that can house a FRU
 class Enclosure:  
@@ -161,6 +168,16 @@ class Enclosure:
             self.fru = None
             return old_fru
         return
+
+    # get power of FRU if not empty
+    def get_power(self):
+        power = self.fru.get_power() if not self.is_empty() else 0
+        return power
+
+    # get expected energy of FRU if not empty
+    def get_energy(self, months=None):
+        energy = self.fru.get_energy(months=months) if not self.is_empty() else 0
+        return energy
 
 # housing unit for power modules
 class Server:
@@ -201,7 +218,7 @@ class Server:
 
     # return array of FRU powers
     def get_fru_power(self):
-        fru_power = [enclosure.fru.get_power() if enclosure.is_filled() else 0 for enclosure in self.enclosures]
+        fru_power = [enclosure.get_power() for enclosure in self.enclosures]
         return fru_power
 
     # get total power of all FRUs, capped at nameplate rating

@@ -1,25 +1,33 @@
-# central warehouse for creating, storing and deploying components and fleet to manage all sites 
+# central warehouse for creating, storing and deploying components and fleet to manage all sites
+
+import time
 
 import pandas
 from dateutil.relativedelta import relativedelta
+from datetime import date
 from random import randrange
 from powerful import PowerCurves, PowerModules
 from components import FRU, Enclosure, Server
 
 # warehouse to store, repair and deploy old FRUs and create new FRUs
 class Shop:
-    def __init__(self, sql_db, install_date, junk_level=20, best=False, allowed_fru_models=None):
+    def __init__(self, sql_db, install_date, junk_level=20, best=False, allow_ceiling_loss=False,
+                 allowed_fru_models=None):
         self.sql_db = sql_db
         self.power_modules = PowerModules(sql_db)
 
         self.junk_level = junk_level
         self.deploy_months = 3
         self.best = best
+        self.allow_ceiling_loss = allow_ceiling_loss
+
         self.storage = []
         self.deployable = []
         self.junk = []
         self.salvage = []
         self.residuals = pandas.Series()
+
+        self.ghosts = {} # templates of FRUs to copy
 
         self.date = install_date
 
@@ -48,17 +56,34 @@ class Shop:
         return cost
 
     # create a new FRU or replicate an existing FRU
-    def create_fru(self, model, mark, install_date, site_number, server_number, enclosure_number, initial=False, fit=None):
-        serial = self.get_serial('PWM')
+    def ghost_fru(self, model, mark, fit=None):
+        serial = '_' # blank serial
+        install_date = date(1985, 4, 25) ## install date should be initially available date
+
         power_curves = PowerCurves(self.sql_db.get_power_curves(model, mark))
         efficiency_curve = self.sql_db.get_efficiency_curve(model, mark)
 
         base = mark ##
         fru = FRU(serial, model, base, mark, power_curves, efficiency_curve, install_date, current_date=install_date, fit=fit)
 
+        # add FRU template
+        self.ghosts[(model, mark)] = fru
+
+    # copy a FRU from a template
+    def create_fru(self, model, mark, install_date, site_number, server_number, enclosure_number, initial=False, fit=None):
+        serial = self.get_serial('PWM')
+        
+        # check if template already created to reduce calls to DB
+        if (model, mark) not in self.ghosts:
+            self.ghost_fru(model, mark, fit=None)
+            
+        fru = self.ghosts[(model, mark)].copy(serial, install_date, current_date=install_date, fit=fit)
+        
+        # get costs
         cost_action = 'initialize fru' if initial else 'create fru'
         cost = self.get_cost(cost_action, model=model, mark=mark)
 
+        # record costs
         transact_action = 'intialized PWM' if initial else 'created FRU'
         self.transact(serial, model, mark, fru.get_power(), fru.get_efficiency(),
                       transact_action, 'to', site_number, server_number, enclosure_number, cost)
@@ -147,11 +172,13 @@ class Shop:
         return fru
 
     # find FRU in deployable or junk that best fits requirements
-    def find_fru(self, allowed_models, power_needed=0, energy_needed=0, time_needed=0, junked=False):
+    def find_fru(self, allowed_models, power_needed=0, energy_needed=0, time_needed=0, max_power=None, junked=False):
         powers = self.list_powers(allowed_models, junked=junked) - power_needed
         energies = self.list_energies(allowed_models, time_needed, junked=junked) - energy_needed
-        found = (powers.where(powers>0) if power_needed > 0 else 1) * \
-            (energies.where(energies>0)/time_needed if energy_needed > 0 else 1)
+        found = \
+            (powers.where(powers > 0) if power_needed > 0 else 1) * \
+            (powers.where(powers < (max_power - power_needed)) if max_power is not None else 1) * \
+            (energies.where(energies > 0)/time_needed if energy_needed > 0 else 1)
         queue = found.idxmin() if len(found) else pandas.np.nan
 
         return queue
@@ -176,7 +203,7 @@ class Shop:
     # get energy value of each fru in storage
     def list_energies(self, allowed_models, time_needed, junked=False):
         if junked:
-            energies_list = self.flatten_list([self.power_modules.get_energies(fru.model, self.date, time_needed) \
+            energies_list = self.flatten_list([self.power_modules.get_energiesf(fru.model, self.date, time_needed) \
                 if fru.model in allowed_models.to_list() else [0] for fru in self.junk])
         else:
             energies_list = [fru.get_energy(months=time_needed) if fru.model in allowed_models.to_list() else 0 \
@@ -197,7 +224,7 @@ class Shop:
 
     # use a stored FRU or create a new one for power and energy requirements
     def best_fit_fru(self, server_model, install_date, site_number, server_number, enclosure_number,
-                     power_needed=0, energy_needed=0, time_needed=0, initial=False):
+                     power_needed=0, energy_needed=0, time_needed=0, max_power=0, initial=False):
         allowed_modules = self.sql_db.get_compatible_modules(server_model)
         
         junked = {'deployable': False} ##, 'junked': True}
@@ -206,7 +233,8 @@ class Shop:
             powers = self.list_powers(allowed_modules, junked[location])
             energies = self.list_energies(allowed_modules, time_needed, junked[location])
             queues[location] = self.find_fru(allowed_modules, junked=junked[location],
-                                             power_needed=power_needed, energy_needed=energy_needed, time_needed=time_needed)
+                                             power_needed=power_needed, energy_needed=energy_needed, time_needed=time_needed,
+                                             max_power=max_power if not self.allow_ceiling_loss else None)
         
         if (not initial) and len(self.deployable) and (not pandas.isna(queues['deployable'])):
             # there is a FRU available to deploy
@@ -221,9 +249,12 @@ class Shop:
         else:
             # there is not a FRU available, so create a new one
             if self.best:
+                #tick = time.clock()
                 model, mark = self.power_modules.get_model(install_date,
                                                            power_needed=power_needed, energy_needed=energy_needed, time_needed=time_needed,
                                                            best=self.best, server_model=server_model, allowed_fru_models=self.allowed_fru_models)
+                #tock = time.clock()
+                #print('Time to get_model [best fit FRU]: {:0.3f}s'.format(tock-tick))
             else:
                 model, mark = self.power_modules.get_model(install_date,
                                                            power_needed=power_needed, energy_needed=energy_needed, time_needed=time_needed,
@@ -232,20 +263,34 @@ class Shop:
 
         return fru
 
-    # get model types to most closely match target size
-    def prepare_servers(self, server_model_class, target_size):
-        # check if server model class is available in given year, else use next best
-        latest_server_model_class = self.sql_db.get_latest_server_model(self.date, target_model=server_model_class)
-        
-        # get default nameplate sizes   
-        server_nameplates = self.sql_db.get_server_nameplates(latest_server_model_class)
+    # get base model of a server model number
+    def get_server_model(self, server_model_number):
+        server_model = self.sql_db.get_server_model(server_model_number)['model']
+        return server_model
 
-        # determine max number of various size servers could fit
-        server_nameplates.loc[:, 'fit'] = (target_size / server_nameplates['nameplate']).astype(int)
-        # find lost potential because of server sizes
-        server_nameplates.loc[:, 'loss'] = target_size - (server_nameplates['nameplate'] * server_nameplates['fit'])
-        # return best fit model to minimize potential loss
-        server_model_number, server_count = server_nameplates.sort_values('loss')[['model_number', 'fit']].iloc[0]
+    # get model types to most closely match target size
+    def prepare_servers(self, new_servers, target_size):
+        # check if server model number is given
+        if len(new_servers['model']):
+            # get values from database
+            server_model_number = new_servers['model']
+            server_model = self.sql_db.get_server_model(new_servers['model'])
+            server_count = int(target_size / server_model['nameplate'])
+
+        else:
+            # check if server model class is available in given year, else use next best
+            latest_server_model_class = self.sql_db.get_latest_server_model(self.date, target_model=new_servers['model'])
+        
+            # get default nameplate sizes   
+            server_nameplates = self.sql_db.get_server_nameplates(latest_server_model_class)
+
+            # determine max number of various size servers could fit
+            server_nameplates.loc[:, 'fit'] = (target_size / server_nameplates['nameplate']).astype(int)
+            # find lost potential because of server sizes
+            server_nameplates.loc[:, 'loss'] = target_size - (server_nameplates['nameplate'] * server_nameplates['fit'])
+            # return best fit model to minimize potential loss
+            server_model_number, server_count = server_nameplates.sort_values('loss')[['model_number', 'fit']].iloc[0]
+
         return server_model_number, server_count
 
 
@@ -263,7 +308,7 @@ class Shop:
         self.transact(server.serial, server.model, 'SERVER', server.nameplate, 0,
                       'installed ES', 'at', site_number, server.number, -1, cost)
 
-        enclosures = self.create_enclosures(self, site_number, server, enclosure_count=server_model['enclosures'], plus_one_count=server_model['plus_one'])
+        enclosures = self.create_enclosures(site_number, server, enclosure_count=server_model['enclosures'], plus_one_count=server_model['plus_one'])     
 
         for enclosure in enclosures:
             server.add_enclosure(enclosure)
@@ -286,16 +331,16 @@ class Shop:
     # create an enclosure cabinent to add to a server to house a FRU
     def create_enclosures(self, site_number, server, start_number=0, enclosure_count=0, plus_one_count=0):
         # get cost per enclosure
-        cost_action = 'initialize enclosure' if not plus_one else 'add enclosure' **
-        cost = enclosure_count * self.get_cost(cost_action) + plus_one_count 
-        
+        costs = enclosure_count * [self.get_cost('intialize enclosure')] + plus_one_count * [self.get_cost('add enclosure')] 
+       
         # create enclosures
         enclosures = []
-        for c in range(enclosure_count):
+        for c in range(enclosure_count + plus_one_count):
             serial = self.get_serial('ENC')
-            enclosures.append(Enclosure(serial, enclosure_number))
+            enclosure = Enclosure(serial, start_number + c)
+            enclosures.append(enclosure)
             self.transact(serial, server.model, 'ENCLOSURE', 0, 0,
-                          'add enclosure', 'at', site_number, server.number, enclosure.number, cost)
+                          'add enclosure', 'at', site_number, server.number, enclosure.number, costs[c])
 
         return enclosures
 
@@ -328,7 +373,8 @@ class Fleet:
         self.target_site = 0
         self.target_month = 0
         self.install_sizes = []
-        self.install_months = []
+        self.install_months = None
+        self.install_months_count = None
 
         self.sites = []
         self.shop = None
@@ -351,8 +397,8 @@ class Fleet:
         # max time to install
         population_dates = self.system_dates[self.system_dates >= self.system_dates.max() - relativedelta(years=self.install_years)]
         sampled_dates = population_dates.sample(self.total_sites, replace=self.total_sites >= len(population_dates))
-        install_months = (sampled_dates - sampled_dates.min()).dt.days.div(30).round().astype(int).sort_values()
-        self.install_months = install_months.value_counts(sort=False)
+        self.install_months = (sampled_dates - sampled_dates.min()).dt.days.div(30).round().astype(int).sort_values()
+        self.install_months_count = self.install_months.value_counts(sort=False)
 
     # pick target install sequence order
     def set_up_target_site(self, start_date, min_date):
@@ -363,6 +409,11 @@ class Fleet:
         self.target_site = randrange(len(self.install_months[self.install_months <= max_month]))
         self.target_month = self.install_months.iloc[self.target_site]
         self.install_sizes.insert(self.target_site, self.target_size)
+
+    # return number of sites to install in a given month
+    def get_install_count(self, month):
+        count = self.install_months_count.get(month, 0)
+        return count
         
     # add shop to fleet
     def add_shop(self, shop):

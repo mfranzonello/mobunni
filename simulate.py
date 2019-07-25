@@ -1,4 +1,6 @@
-# creating and managing a fleet over time to optimize servicing costs 
+# creating and managing a fleet over time to optimize servicing costs
+
+import time
 
 import pandas
 from datetime import date
@@ -32,16 +34,15 @@ class Scenario:
         self.target_size = kwargs.get('target_size', 1000)
         self.start_date = kwargs.get('start_date', date(date.today().year, 1, 1))
         self.limits = kwargs['limits']
-        self.server_model = kwargs['server_model']
-        self.max_enclosures = kwargs.get('max_enclosures', 6)
-        self.plus_one_empty = kwargs.get('plus_one_empty', False)
-        self.allowed_fru_models = kwargs.get('allowed_fru_models')
+        self.new_servers = kwargs['new_servers']
         self.existing_servers = kwargs['existing_servers']
+        self.allowed_fru_models = kwargs.get('allowed_fru_models')       
         self.non_replace = kwargs.get('non_replace')
         self.start_month = kwargs.get('start_month', 0)
         self.repair = kwargs.get('repair', False)
         self.junk_level = kwargs.get('junk_level')
         self.best = kwargs.get('best', True)
+        self.allow_ceiling_loss = kwargs.get('allow_ceiling_loss', True)
 
     # save specifice inputs from a scenario
     def get_inputs(self):
@@ -54,14 +55,15 @@ class Scenario:
                                         ['WTMO limit', self.limits['WTMO']],
                                         ['WTMO window', self.limits['window']],
                                         ['PTMO limit', self.limits['PTMO']],
-                                        ['server model', self.server_model],
-                                        ['server enclosures', self.max_enclosures],
-                                        ['plus-one', self.plus_one_empty],
-                                        ['existing servers', len(self.existing_servers)>0],
+                                        ['new server model', self.new_servers['model'] if len(self.new_servers['model']) else self.new_servers['base']],
+                                        #['server enclosures', self.max_enclosures],
+                                        #['plus-one', self.plus_one_empty],
+                                        ['existing server model', self.existing_servers['model'] if len(self.existing_servers['df']) else None],
                                         ['downside years', self.non_replace],
                                         ['repair threshold', self.repair],
                                         ['redeploy level', self.junk_level],
                                         ['use best FRU available', self.best],
+                                        ['allow ceiling loss with early deploys', self.allow_ceiling_loss]
                                         ])
         return inputs
 
@@ -89,19 +91,18 @@ class Simulation:
         self.start_date = scenario.start_date
         self.limits = scenario.limits
 
-        self.server_model = scenario.server_model
-
-        self.max_enclosures = scenario.max_enclosures
-        self.plus_one_empty = scenario.plus_one_empty
-        self.allowed_fru_models = scenario.allowed_fru_models
-
+        self.new_servers = scenario.new_servers
         self.existing_servers = scenario.existing_servers
-
+        self.allowed_fru_models = scenario.allowed_fru_models
+        #self.max_enclosures = scenario.max_enclosures
+        #self.plus_one_empty = scenario.plus_one_empty
+        
         self.start_month = scenario.start_month
         self.non_replace = scenario.non_replace
         self.repair = scenario.repair
         self.junk_level = scenario.junk_level
         self.best = scenario.best
+        self.allow_ceiling_loss = scenario.allow_ceiling_loss
 
         self.details_inputs = details.get_inputs()
         self.scenario_inputs = scenario.get_inputs()
@@ -112,10 +113,12 @@ class Simulation:
         min_date = self.sql_db.get_earliest_date()
         fleet = Fleet(self.target_size, self.n_sites, self.n_years, system_sizes, system_dates, self.start_date, min_date)
 
-        shop = Shop(self.sql_db, self.start_date, junk_level=self.junk_level, best=self.best, allowed_fru_models=self.allowed_fru_models)
+        shop = Shop(self.sql_db, self.start_date, junk_level=self.junk_level, best=self.best, allow_ceiling_loss=self.allow_ceiling_loss,
+                    allowed_fru_models=self.allowed_fru_models)
         fleet.add_shop(shop)
 
         # adjust start date to account for sites being installed before the target site
+        ##print('TARGET MONTH: {}'.format(fleet.target_month))
         self.start_date -= relativedelta(months=fleet.target_month)
 
         return fleet, shop
@@ -130,16 +133,16 @@ class Simulation:
         print(' | {}kW'.format(site_size))
 
         site = Site(site_number, fleet.shop, site_size, self.start_date + relativedelta(months=month),
-                    self.contract_length, self.limits, self.repair, self.server_model,
-                    max_enclosures=self.max_enclosures, start_month=self.start_month, start_ctmo=1.0, non_replace=self.non_replace,
+                    self.contract_length, self.limits, self.repair,
+                    start_month=self.start_month, start_ctmo=1.0, non_replace=self.non_replace,
                     thresholds=self.sql_db.get_thresholds()) ## START_CTMO
 
         if (site_number == fleet.target_site) and len(self.existing_servers['df']):
             # target site has exisitng servers
-            site.populate(self.existing_servers)
+            site.populate(existing_servers=self.existing_servers)
         else:
             # build site from scratch
-            site.populate({'df': []}, plus_one_empty=self.plus_one_empty)
+            site.populate(new_servers=self.new_servers) #plus_one_empty=self.plus_one_empty
 
         return site
 
@@ -156,7 +159,10 @@ class Simulation:
             decommissioned = True
         else:
             # check TMO, efficiency, repairs and other site statuses
+            #tick = time.clock()
             site.check_site()
+            #tock = time.clock()
+            #print('Time to check site: {:0.3f}'.format(tock-tick))
                                                
             # degrade FRUs and continue contract
             site.degrade()
@@ -193,14 +199,19 @@ class Simulation:
             for month in range(self.contract_length*12 + fleet.target_month + 1): #+ self.n_years ## variable length contracts?
 
                 # install site at sampled months
-                for site_n in range(fleet.install_months.get(month, 0)):
+                for site_n in range(fleet.get_install_count(month)):
+                    #tick = time.clock()
                     site = self.set_up_site(fleet, month)
+                    #tock1 = time.clock()
+                    #print('Time to set up site: {:0.3f}'.format(tock1-tick))
                     fleet.add_site(site)
+
                         
                 for site in fleet.sites:
                     # check site status and move FRUs as required
                     ##print('Inspecting site {}'.format(site.number + 1))
                     decommissioned = self.inspect_site(fleet, site)
+
                     if decommissioned:
                         fleet.remove_site(site)
                    

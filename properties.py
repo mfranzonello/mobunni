@@ -1,4 +1,6 @@
-# physical sites were energy servers are installed 
+# physical sites were energy servers are installed
+
+import time
 
 import pandas
 from dateutil.relativedelta import relativedelta
@@ -6,9 +8,9 @@ from math import ceil, floor
 
 # group of energy servers
 class Site:    
-    def __init__(self, number, shop, target_size, start_date, contract_length, limits, repair, server_model,
-                 max_enclosures=6, start_month=0, start_ctmo=1.0, non_replace=None,
-                 thresholds={'degraded': 0.0, 'inefficient': 0.0, 'deviated': 0.0, 'early deploy': 1}):
+    def __init__(self, number, shop, target_size, start_date, contract_length, limits, repair,
+                 start_month=0, start_ctmo=1.0, non_replace=None,
+                 thresholds={'degraded': 0.0, 'inefficient': 0.0, 'deviated': 0.0, 'early deploy': 1.0, 'no deploy': 0.0}): 
 
         self.number = number
         self.shop = shop
@@ -36,23 +38,19 @@ class Site:
         if self.limits['window'] is None:
             self.limits['window'] = 1
 
-        self.degraded_threshold = thresholds['degraded']
-        self.inefficient_threshold = thresholds['inefficient']
-        self.deviated_threshold = thresholds['deviated']
-        self.early_deploy = thresholds['early deploy']
+        self.thresholds = thresholds
         self.repair = repair
 
-        self.server_model = server_model
-        self.max_enclosures = max_enclosures
+        self.server_model = None
 
         self.non_replace = non_replace
 
         self.servers = []
 
-        self.start_month = start_month
+        self.start_month = int(start_month)
         self.start_ctmo = start_ctmo
 
-        self.month = start_month
+        self.month = int(start_month)
 
     def __str__(self):
         m_string = max(0, self.month-1)
@@ -77,23 +75,28 @@ class Site:
         return date
 
     # return years into the contract
-    def get_time_passed(self):
-        year = self.month/12
-        return year
+    def get_years_passed(self):
+        passed = self.month/12
+        return passed
+
+    # return monst left in the contract
+    def get_months_remaining(self):
+        remaining = self.contract_length * 12 - self.month
+        return remaining
 
     # return years left in the contract
-    def get_time_remaining(self):
-        remaining = self.contract_length - self.get_year() - 1
+    def get_years_remaining(self):
+        remaining = self.get_months_remaining() / 12
         return remaining
 
     # return number of years into contract
     def get_year(self):
-        year = floor(self.get_time_passed()) + 1
+        year = floor(self.get_years_passed()) + 1
         return year
 
     # contract has expired
     def is_expired(self):
-        expired = self.get_time_passed() >= self.contract_length
+        expired = self.get_years_passed() >= self.contract_length
         return expired
 
     # sum up to nameplate rating of each installed energy server
@@ -131,9 +134,15 @@ class Site:
         
         return fru_energy
 
+    # caculate energy already produced at all servers
+    def get_energy_produced(self):
+        ctmo = self.performance.loc[self.month - 1, 'CTMO'] if self.month > 0 else self.start_ctmo
+        site_energy = ctmo * self.month * self.system_size 
+        return site_energy
+
     # estimate the remaining energy in all servers
-    def get_site_energy(self):
-        site_energy = sum(server.get_energy() for server in self.servers)
+    def get_energy_remaining(self):
+        site_energy = sum(server.get_energy(months=self.get_months_remaining()) for server in self.servers)
         return site_energy
 
     # series of server nameplate ratings
@@ -181,14 +190,16 @@ class Site:
         return site_ceiling_loss
 
     # add FRUs to site
-    def populate(self, existing_servers, plus_one_empty=False):
+    def populate(self, new_servers=None, existing_servers=None):
         # servers already exist
-        if len(existing_servers.get('df')):
+        if existing_servers is not None: #len(existing_servers.get('df')):
+            self.server_model = self.shop.get_server_model(existing_servers['model'])
             self.populate_existing(existing_servers)
-
+            
         # servers are new
-        else:
-            self.populate_new(plus_one_empty)
+        elif new_servers is not None:
+            self.server_model = self.shop.get_server_model(new_servers['model'])
+            self.populate_new(new_servers)
 
         # prepare performance storage
         reindex = ['date'] + ['ES{}|{}'.format(s_n, e_n) \
@@ -235,10 +246,10 @@ class Site:
         self.system_size = self.target_size
 
     # add new FRUs to site
-    def populate_new(self, plus_one_empty):
+    def populate_new(self, new_servers):
         # no existing FRUs, start site from scratch
         # divide power needed by server nameplate to determine number of servers needed
-        server_model_number, servers_needed = self.shop.prepare_servers(self.server_model, self.target_size)
+        server_model_number, servers_needed = self.shop.prepare_servers(new_servers, self.target_size)
 
         # add servers needed to hit target size
         for server_number in range(servers_needed):
@@ -254,6 +265,8 @@ class Site:
                 (self.servers[server_number].get_power() < server.nameplate) and (self.get_site_power() < self.target_size):
                 enclosure_number = self.servers[server_number].get_empty_enclosure()
                 power_needed = self.target_size - self.get_site_power()
+
+                start = time.clock()
                 fru = self.shop.best_fit_fru(self.server_model, self.get_date(), self.number, server_number, enclosure_number,
                                                 power_needed=power_needed, initial=True)
                 self.replace_fru(server_number, enclosure_number, fru)
@@ -266,18 +279,18 @@ class Site:
             for enclosure in server.enclosures:
                 if enclosure.is_filled():
                     old_fru = self.replace_fru(server.number, enclosure.number, None)
-                    deviated = old_fru.is_deviated(self.deviated_threshold)
+                    deviated = old_fru.is_deviated(self.thresholds['deviated'])
                     self.shop.store_fru(old_fru, self.number, server.number, enclosure.number, final=True, repair=deviated)
         return
         
     # FRUs that have degraded or are less efficienct
     def get_replaceable_frus(self, by):
         if by in ['power', 'energy']:
-            replaceable = [[enclosure.fru.is_degraded(self.degraded_threshold) \
+            replaceable = [[enclosure.fru.is_degraded(self.thresholds['degraded']) \
                 if enclosure.is_filled() else True for enclosure in server.enclosures] for server in self.servers]
 
         elif by in ['efficiency']:
-            replaceable = [[enclosure.fru.is_inefficient(self.inefficient_threshold) \
+            replaceable = [[enclosure.fru.is_inefficient(self.thresholds['inefficient']) \
                 if enclosure.is_filled() else True for enclosure in server.enclosures] for server in self.servers]
 
         replaceable_frus = pandas.DataFrame(data=replaceable)
@@ -491,39 +504,57 @@ class Site:
         commitments, fails = self.store_performance()
 
         # check if FRUs can be replaced this year
-        if (self.non_replace is None) or (len(self.non_replace) == 0) or \
-            (self.get_year() not in range(self.non_replace[0], self.non_replace[-1]+1)):
-
+        if ((self.non_replace is None) or (len(self.non_replace) == 0) or \
+            not (self.non_replace[0] <= self.get_year() <= self.non_replace[-1])) and \
+            self.get_years_remaining() > self.thresholds['no deploy']:
+            
             # check if FRUs need to be repaired
             if self.repair:
+                #tick = time.clock()
                 commitments, fails = self.check_repairs()
+                #tock = time.clock()
+                #print('Time to check repairs: {:0.3f}s'.format(tock-tick))
 
             # check for early deploy opportunity
-            if (self.limits['CTMO'] is not None) and (self.early_deploy > self.get_time_remaining()):
+            if (self.limits['CTMO'] is not None) and (self.get_years_remaining() <= self.thresholds['early deploy']):
+                #tick = time.clock()
                 commitments, fails = self.check_deploys(commitments)
+                #tock = time.clock()
+                #print('Time to check early deploy: {:0.3f}s'.format(tock-tick))
 
             # check for replaceable FRU
             if fails['TMO'] or fails['efficiency']:
+                #tick = time.clock()
                 server_p, enclosure_p = self.get_worst_fru('power')
+                #tock = time.clock()
+                #print('Time to get worst power FRU: {:0.3f}s'.format(tock-tick))
+
+                #tick = time.clock()
                 server_e, enclosure_e = self.get_worst_fru('efficiency')
+                #tock = time.clock()
+                #print('Time to get worst efficiency FRU: {:0.3f}s'.format(tock-tick))
+
             else:
                 server_p = None
                 server_e = None
 
             while ((server_p is not None) and fails['TMO']) or ((server_e is not None) and fails['efficiency']):
                 # replace worst FRUs until TMO threshold hit or exhaustion
+                #tick = time.clock()
                 if (server_p is not None) and fails['TMO']:
                     commitments, fails, server_p, enclosure_p, server_e, enclosure_e = self.check_tmo(commitments, fails, server_p, enclosure_p)
 
                 if (server_e is not None) and fails['efficiency']:
                     commitments, fails, server_p, enclosure_p, server_e, enclosure_e = self.check_efficiency(commitments, server_e, enclosure_e)
+                #tock = time.clock()
+                #print('Time to solve commitments {:0.3f}s'.format(tock-tick))
         return
         
     # look for repair opportunities
     def check_repairs(self):
         for server in self.servers:
             for enclosure in server.enclosures:
-                if enclosure.is_filled() and enclosure.fru.is_deviated(self.deviated_threshold):
+                if enclosure.is_filled() and enclosure.fru.is_deviated(self.thresholds['deviated']):
                     # FRU must be repaired
                     # pull the old FRU
                     old_fru = self.replace_fru(server.number, enclosure.number, None)
@@ -537,15 +568,29 @@ class Site:
 
     # look for early deploy opportunities
     def check_deploys(self, commitments):
-        # estimate final CTMO if FRUs degrade as expected and add FRUs if needed
-        expected_ctmo = (commitments['CTMO']*self.get_time_passed() + self.get_site_energy())/self.contract_length
-        if self.check_fail(expected_ctmo, self.limits['CTMO']):
-            additional_energy = self.limits['CTMO'] * self.contract_length - (commitments['CTMO']*self.get_time_passed() + self.get_site_energy())
-            server_d, enclosure_d = self.get_worst_fru('energy')
-            energy_needed = additional_energy - self.servers[server_d].enclosures[enclosure_d].get_energy()
+        # estimate final CTMO if FRUs degrade as expected and add FRUs if needed, with padding
+        #tick = time.clock()
+        expected_ctmo = (self.get_energy_produced() + self.get_energy_remaining()) / (self.contract_length * 12) / self.system_size
+        #tock = time.clock()
+        #print('Time to get expected CTMO: {0:3f}s'.format(tock-tick))
+
+        # CHECK PTMO??
+        ##expected_ptmo = SOMETHING
+
+        # CHECK IF THERE WILL BE CEILING LOSS
+
+        if self.check_fail(expected_ctmo, self.limits['CTMO'] + self.thresholds['ctmo pad']):
+            additional_energy = (self.limits['CTMO'] + self.thresholds['ctmo pad']) * self.contract_length * 12 * self.system_size \
+                - (self.get_energy_produced() + self.get_energy_remaining())
             
+            server_d, enclosure_d = self.get_worst_fru('energy')
+            energy_needed = additional_energy - self.servers[server_d].enclosures[enclosure_d].get_energy(months=self.get_months_remaining())
+            
+            #tick = time.clock()
             new_fru = self.shop.best_fit_fru(self.server_model, self.get_date(), self.number, server_d, enclosure_d,
-                                             energy_needed=energy_needed, time_needed=self.get_time_remaining())
+                                             energy_needed=energy_needed, time_needed=self.get_months_remaining())
+            #tock = time.clock()
+            #print('Time to get best fit FRU: {0:3f}s'.format(tock-tick))
 
             # swap out old FRU and store if not empty
             old_fru = self.replace_fru(server_d, enclosure_d, new_fru)
@@ -556,15 +601,23 @@ class Site:
                 # FRU was added to empty enclosure, so check for overloading
                 self.balance_site()
 
+        #tick = time.clock()
         commitments, fails = self.store_performance()
+        #tock = time.clock()
+        #print('Time to store_performance: {0:3f}s'.format(tock-tick))
 
         return commitments, fails
 
     # look for FRU replacements to meet TMO commitments
     def check_tmo(self, commitments, fails, server_p, enclosure_p):
+        #tick = time.clock()
         power_pulled = self.servers[server_p].enclosures[enclosure_p].fru.get_power() \
             if self.servers[server_p].enclosures[enclosure_p].is_filled() else 0
-        
+        #tock = time.clock()
+        #print('Time to get power pulled [TMO]: {0:3f}s'.format(tock-tick))
+
+
+        #tick = time.clock()
         if fails['CTMO']:
             power_needed = ((self.limits['CTMO'] - commitments['CTMO']) * self.system_size + power_pulled) * self.month
 
@@ -573,10 +626,15 @@ class Site:
 
         elif fails['PTMO']:
             power_needed = (self.limits['PTMO'] - commitments['PTMO']) * self.system_size + power_pulled
+        #tock = time.clock()
+        #print('Time to get power needed [TMO]: {0:3f}s'.format(tock-tick))
 
+        #tick = time.clock()
         new_fru = self.shop.best_fit_fru(self.server_model, self.get_date(), self.number, server_p, enclosure_p,
                                          power_needed=power_needed)
-                    
+        #tock = time.clock()
+        #print('Time to get best fit FRU [TMO]: {0:3f}s'.format(tock-tick))
+            
         # swap out old FRU and store if not empty
         old_fru = self.replace_fru(server_p, enclosure_p, new_fru)
 
@@ -585,10 +643,16 @@ class Site:
             self.shop.store_fru(old_fru, self.number, server_p, enclosure_p)
         else:
             # FRU was added to empty enclosure, so check for overloading
+            #tick = time.clock()
             self.balance_site()
+            #tock = time.clock()
+            #print('Time to balance_site [TMO]: {0:3f}s'.format(tock-tick))
 
         # find next worst FRU
+        #tick = time.clock()
         commmitments, fails, server_p, enclosure_p, server_e, enclosure_e = self.check_worst_fru()
+        #tock = time.clock()
+        #print('Time to check worst fru [TMO]: {0:3f}s'.format(tock-tick))
 
         return commmitments, fails, server_p, enclosure_p, server_e, enclosure_e
 
@@ -614,7 +678,7 @@ class Site:
             self.shop.store_fru(old_fru, self.number, server_e, enclosure_e)
         else:
             # put in a brand new FRU
-            new_fru = self.shop.best_fit_fru(server.model, self.get_date(), self.number, server_e, enclosure_e)
+            new_fru = self.shop.best_fit_fru(server.model, self.get_date(), self.number, server_e, enclosure_e, initial=True)
             self.replace_fru(server_e, enclosure_e, new_fru)
             
             # FRU was added to empty enclosure, so check for overloading

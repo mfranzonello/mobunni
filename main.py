@@ -32,14 +32,14 @@ def get_details(excel_int):
 def get_scenario(excel_int, scenario_number):
     print('Getting scenario {} details'.format(scenario_number+1))
     scenario_name, limits, target_size, start_date, contract_length, start_month, \
-        non_replace, repair, junk_level, best, \
-        server_model, max_enclosures, plus_one_empty, allowed_fru_models, existing_servers = excel_int.get_scenario(scenario_number)
+        non_replace, repair, junk_level, best, allow_ceiling_loss, \
+        new_servers, existing_servers, allowed_fru_models = excel_int.get_scenario(scenario_number) #max_enclosures, plus_one_empty,
 
     scenario = Scenario(scenario_number, scenario_name,
                         contract_length=contract_length, target_size=target_size, start_date=start_date, limits=limits,
-                        server_model=server_model, max_enclosures=max_enclosures, plus_one_empty=plus_one_empty, allowed_fru_models=allowed_fru_models,
-                        existing_servers=existing_servers, non_replace=non_replace, start_month=start_month,
-                        repair=repair, junk_level=junk_level, best=best)
+                        new_servers=new_servers, existing_servers=existing_servers, allowed_fru_models=allowed_fru_models,
+                        non_replace=non_replace, start_month=start_month,
+                        repair=repair, junk_level=junk_level, best=best, allow_ceiling_loss=allow_ceiling_loss)
     return scenario
 
 # run simulation

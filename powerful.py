@@ -1,5 +1,7 @@
 # definitions for power and efficiency curves, power modules and energy servers
 
+import time
+
 import pandas
 from numpy import random as nprandom
 
@@ -8,8 +10,10 @@ class PowerCurves:
     def __init__(self, curves):
         self.curves = curves
         self.percentiles = curves.columns.to_list()
+        
         self.ideal = max(self.percentiles)
         self.worst = min(self.percentiles)
+
         self.probabilities = self.get_probabilities(self.percentiles)
 
     # calculate probability of each percentile
@@ -70,6 +74,7 @@ class PowerCurves:
     # pick power curve for power module
     def pick_curve(self, allowed=[0,1], fit=None):
         allowed_curves = self.get_allowed_curves(allowed, fit)
+
         probabilities_normalized = self.normalize_probabilties(allowed_curves.columns)
         chosen_percentile = nprandom.choice(allowed_curves.columns.to_list(), p=probabilities_normalized)
         
@@ -109,27 +114,47 @@ class PowerModules:
 
     # find best new power module available
     def get_model(self, install_date, power_needed=0, energy_needed=0, time_needed=0, best=False, server_model=None, allowed_fru_models=None): ## FILTERED
+        #tick = time.clock()
         buildable_modules = self.sql_db.get_buildable_modules(install_date, server_model=server_model, allowed=allowed_fru_models)
+        #tock = time.clock()
+        #print('Time to get buildable modules [Power Modules]: {:0.3f}s'.format(tock-tick))
 
+        ##print(install_date)
+        ##print(buildable_modules)
+        ##print(server_model)
+
+        #tick = time.clock()
         buildable_modules.loc[:, 'rating'] = buildable_modules.apply(lambda x: self.get_rating(x['model'], x['mark']),
                                                                      axis='columns')
+        #tock = time.clock()
+        #print('Time to filter by rating [Power Modules]: {:0.3f}s'.format(tock-tick))
+
+        #tick = time.clock()
         buildable_modules.loc[:, 'energy'] = buildable_modules.apply(lambda x: self.get_energy(x['model'], x['mark'], time_needed),
                                                                      axis='columns')
+        #tock = time.clock()
+        #print('Time to filter by energy [Power Modules]: {:0.3f}s'.format(tock-tick))
+        
 
         # check power requirements
         max_rating = buildable_modules['rating'].max()
         if (max_rating >= power_needed) and (not best):
-            # if there is a model big enough to handle the load, choose the 
-            filtered_modules = buildable_modules[buildable_modules['rating'] >= power_needed]
+            # if there is a model big enough to handle the load, choose it
+            filtered_power_modules = buildable_modules[buildable_modules['rating'] >= power_needed]
         else:
             # choose the biggest model available
-            filtered_modules = buildable_modules[buildable_modules['rating'] == max_rating]
+            filtered_power_modules = buildable_modules[buildable_modules['rating'] == max_rating]
 
         # check energy requirements
-        if energy_needed > 0:
-            filter = filtered_modules.apply(lambda x: self.get_energy(x['model'], x['mark'], time_needed) >= energy_needed,
-                                                                      axis='columns')
-            filtered_modules = filtered_modules[filter]
+        max_energy = buildable_modules['energy'].max()
+        if (max_energy >= energy_needed) and (not best):
+            # if there is a model big enough to handle the load, choose it
+            #tick = time.clock()
+            filtered_modules = filtered_power_modules[filtered_power_modules['energy'] >= energy_needed]
+            #tock = time.clock()
+            #print('Time to filter modules by energy needed: {:0.3f}s'.format(tock-tick))
+        else:
+            filtered_modules = filtered_power_modules[filtered_power_modules['energy'] == max_energy]
 
         module = filtered_modules.iloc[0, :]
         model = module['model']
@@ -155,8 +180,15 @@ class PowerModules:
 
     # return expected energy output of a given model
     def get_energy(self, model, mark, time_needed):
+        #tick = time.clock()
         curves = PowerCurves(self.sql_db.get_power_curves(model, mark))
+        #tock = time.clock()
+        #print('Time to get power curves for energy calc: {:0.3f}s'.format(tock-tick))
+
+        #tick = time.clock()
         energy = curves.get_expected_energy(time_needed=time_needed)
+        #tock = time.clock()
+        #print('Time to calculate energy: {:0.3f}s'.format(tock-tick))
         return energy
 
     # return expected energy output of all marks of a module
