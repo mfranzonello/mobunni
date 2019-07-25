@@ -1,9 +1,8 @@
 # physical field replaceable unit power modules (FRUs) and energy servers (with enclosure cabinets)
 
-import time
-
 import pandas
 from dateutil.relativedelta import relativedelta
+from structure import StopWatch
 
 # power module (field replaceable unit)
 class FRU:

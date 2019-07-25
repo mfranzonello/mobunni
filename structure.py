@@ -11,6 +11,7 @@ import requests
 import io
 from xml.etree import ElementTree
 from sqlalchemy import create_engine
+from time import process_time
 
 # ask user for project selection
 class Project:
@@ -694,3 +695,14 @@ class ExcelSQL:
     def import_all_curves(self):
         self.import_power_curves()
         self.import_efficiency_curves()
+
+# timer for performance evalution
+class StopWatch:
+    t = {}
+    verbose = False
+    def timer(message):
+        tock = StopWatch.t.get(message)
+        tick = process_time()
+        if StopWatch.verbose and (tock is not None):
+            print('Time to {}: {:0.3f}s'.format(message, tick - tock))
+        StopWatch.t[message] = tick

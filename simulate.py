@@ -1,12 +1,11 @@
 # creating and managing a fleet over time to optimize servicing costs
 
-import time
-
 import pandas
 from datetime import date
 from dateutil.relativedelta import relativedelta
 from properties import Site
 from operations import Shop, Fleet
+from structure import StopWatch
 
 # common details across project
 class Details:
@@ -156,10 +155,9 @@ class Simulation:
             decommissioned = True
         else:
             # check TMO, efficiency, repairs and other site statuses
-            #tick = time.clock()
+            StopWatch.timer('check site [simulate]')
             site.check_site()
-            #tock = time.clock()
-            #print('Time to check site: {:0.3f}'.format(tock-tick))
+            StopWatch.timer('check site [simulate]')
                                                
             # degrade FRUs and continue contract
             site.degrade()
@@ -197,10 +195,10 @@ class Simulation:
 
                 # install site at sampled months
                 for site_n in range(fleet.get_install_count(month)):
-                    #tick = time.clock()
+                    StopWatch.timer('set up site [simulate]')
                     site = self.set_up_site(fleet, month)
-                    #tock1 = time.clock()
-                    #print('Time to set up site: {:0.3f}'.format(tock1-tick))
+                    StopWatch.timer('set up site [simulate]')
+
                     fleet.add_site(site)
 
                         

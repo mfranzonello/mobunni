@@ -1,10 +1,9 @@
 # physical sites were energy servers are installed
 
-import time
-
 import pandas
 from dateutil.relativedelta import relativedelta
 from math import ceil, floor
+from structure import StopWatch
 
 # group of energy servers
 class Site:    
@@ -266,9 +265,8 @@ class Site:
                 enclosure_number = self.servers[server_number].get_empty_enclosure()
                 power_needed = self.target_size - self.get_site_power()
 
-                start = time.clock()
-                fru = self.shop.best_fit_fru(self.server_model, self.get_date(), self.number, server_number, enclosure_number,
-                                                power_needed=power_needed, initial=True)
+                fru = self.shop.get_best_fit_fru(self.server_model, self.get_date(), self.number, server_number, enclosure_number,
+                                                 power_needed=power_needed, initial=True)
                 self.replace_fru(server_number, enclosure_number, fru)
 
         self.system_size = self.get_system_size()       
@@ -510,29 +508,25 @@ class Site:
             
             # check if FRUs need to be repaired
             if self.repair:
-                #tick = time.clock()
+                StopWatch.timer('check repairs')
                 commitments, fails = self.check_repairs()
-                #tock = time.clock()
-                #print('Time to check repairs: {:0.3f}s'.format(tock-tick))
+                StopWatch.timer('check repairs')
 
             # check for early deploy opportunity
             if (self.limits['CTMO'] is not None) and (self.get_years_remaining() <= self.thresholds['early deploy']):
-                #tick = time.clock()
+                StopWatch.timer('check early deploy')
                 commitments, fails = self.check_deploys(commitments)
-                #tock = time.clock()
-                #print('Time to check early deploy: {:0.3f}s'.format(tock-tick))
+                StopWatch.timer('check early deploy')
 
             # check for replaceable FRU
             if fails['TMO'] or fails['efficiency']:
-                #tick = time.clock()
+                StopWatch.timer('get worst power FRU')
                 server_p, enclosure_p = self.get_worst_fru('power')
-                #tock = time.clock()
-                #print('Time to get worst power FRU: {:0.3f}s'.format(tock-tick))
+                StopWatch.timer('get worst power FRU')
 
-                #tick = time.clock()
+                StopWatch.timer('get worst efficiency FRU')
                 server_e, enclosure_e = self.get_worst_fru('efficiency')
-                #tock = time.clock()
-                #print('Time to get worst efficiency FRU: {:0.3f}s'.format(tock-tick))
+                StopWatch.timer('get worst efficiency FRU')
 
             else:
                 server_p = None
@@ -540,14 +534,14 @@ class Site:
 
             while ((server_p is not None) and fails['TMO']) or ((server_e is not None) and fails['efficiency']):
                 # replace worst FRUs until TMO threshold hit or exhaustion
-                #tick = time.clock()
+                StopWatch.timer('solve commitments')
                 if (server_p is not None) and fails['TMO']:
                     commitments, fails, server_p, enclosure_p, server_e, enclosure_e = self.check_tmo(commitments, fails, server_p, enclosure_p)
 
                 if (server_e is not None) and fails['efficiency']:
                     commitments, fails, server_p, enclosure_p, server_e, enclosure_e = self.check_efficiency(commitments, server_e, enclosure_e)
-                #tock = time.clock()
-                #print('Time to solve commitments {:0.3f}s'.format(tock-tick))
+                StopWatch.timer('solve commitments')
+
         return
         
     # look for repair opportunities
@@ -569,10 +563,9 @@ class Site:
     # look for early deploy opportunities
     def check_deploys(self, commitments):
         # estimate final CTMO if FRUs degrade as expected and add FRUs if needed, with padding
-        #tick = time.clock()
+        StopWatch.timer('get expected CTMO')
         expected_ctmo = (self.get_energy_produced() + self.get_energy_remaining()) / (self.contract_length * 12) / self.system_size
-        #tock = time.clock()
-        #print('Time to get expected CTMO: {0:3f}s'.format(tock-tick))
+        StopWatch.timer('get expected CTMO')
 
         # CHECK PTMO??
         #expected_ptmo = 
@@ -586,38 +579,39 @@ class Site:
             server_d, enclosure_d = self.get_worst_fru('energy')
             energy_needed = additional_energy - self.servers[server_d].enclosures[enclosure_d].get_energy(months=self.get_months_remaining())
             
-            #tick = time.clock()
-            new_fru = self.shop.best_fit_fru(self.server_model, self.get_date(), self.number, server_d, enclosure_d,
-                                             energy_needed=energy_needed, time_needed=self.get_months_remaining())
-            #tock = time.clock()
-            #print('Time to get best fit FRU: {0:3f}s'.format(tock-tick))
+            StopWatch.timer('get best fit FRU [early deploy]')
+            new_fru = self.shop.get_best_fit_fru(self.server_model, self.get_date(), self.number, server_d, enclosure_d,
+                                                 energy_needed=energy_needed, time_needed=self.get_months_remaining())
+            StopWatch.timer('get best fit FRU [early deploy]')
 
-            # swap out old FRU and store if not empty
-            old_fru = self.replace_fru(server_d, enclosure_d, new_fru)
-            if old_fru is not None:
-                # FRU replaced an existing module
-                self.shop.store_fru(old_fru, self.number, server_d, enclosure_d)
-            else:
-                # FRU was added to empty enclosure, so check for overloading
-                self.balance_site()
 
-        #tick = time.clock()
+
+            # there is a FRU that meets ceiling loss requirements
+            if new_fru is not None:
+
+                # swap out old FRU and store if not empty
+                old_fru = self.replace_fru(server_d, enclosure_d, new_fru)
+                if old_fru is not None:
+                    # FRU replaced an existing module
+                    self.shop.store_fru(old_fru, self.number, server_d, enclosure_d)
+                else:
+                    # FRU was added to empty enclosure, so check for overloading
+                    self.balance_site()
+
+        StopWatch.timer('store_performance')
         commitments, fails = self.store_performance()
-        #tock = time.clock()
-        #print('Time to store_performance: {0:3f}s'.format(tock-tick))
+        StopWatch.timer('store_performance')
 
         return commitments, fails
 
     # look for FRU replacements to meet TMO commitments
     def check_tmo(self, commitments, fails, server_p, enclosure_p):
-        #tick = time.clock()
+        StopWatch.timer('get power pulled [TMO]')
         power_pulled = self.servers[server_p].enclosures[enclosure_p].fru.get_power() \
             if self.servers[server_p].enclosures[enclosure_p].is_filled() else 0
-        #tock = time.clock()
-        #print('Time to get power pulled [TMO]: {0:3f}s'.format(tock-tick))
+        StopWatch.timer('get power pulled [TMO]')
 
-
-        #tick = time.clock()
+        StopWatch.timer('get power needed [TMO]')
         if fails['CTMO']:
             power_needed = ((self.limits['CTMO'] - commitments['CTMO']) * self.system_size + power_pulled) * self.month
 
@@ -626,15 +620,13 @@ class Site:
 
         elif fails['PTMO']:
             power_needed = (self.limits['PTMO'] - commitments['PTMO']) * self.system_size + power_pulled
-        #tock = time.clock()
-        #print('Time to get power needed [TMO]: {0:3f}s'.format(tock-tick))
+        StopWatch.timer('get power needed [TMO]')
 
-        #tick = time.clock()
-        new_fru = self.shop.best_fit_fru(self.server_model, self.get_date(), self.number, server_p, enclosure_p,
-                                         power_needed=power_needed)
-        #tock = time.clock()
-        #print('Time to get best fit FRU [TMO]: {0:3f}s'.format(tock-tick))
-            
+        StopWatch.timer('get best fit [TMO]')
+        new_fru = self.shop.get_best_fit_fru(self.server_model, self.get_date(), self.number, server_p, enclosure_p,
+                                             power_needed=power_needed)
+        StopWatch.timer('get best fit [TMO]')
+        
         # swap out old FRU and store if not empty
         old_fru = self.replace_fru(server_p, enclosure_p, new_fru)
 
@@ -643,16 +635,14 @@ class Site:
             self.shop.store_fru(old_fru, self.number, server_p, enclosure_p)
         else:
             # FRU was added to empty enclosure, so check for overloading
-            #tick = time.clock()
+            StopWatch.timer('balance_site [TMO]')
             self.balance_site()
-            #tock = time.clock()
-            #print('Time to balance_site [TMO]: {0:3f}s'.format(tock-tick))
+            StopWatch.timer('balance_site [TMO]')
 
         # find next worst FRU
-        #tick = time.clock()
+        StopWatch.timer('check worst FRU [TMO]')
         commmitments, fails, server_p, enclosure_p, server_e, enclosure_e = self.check_worst_fru()
-        #tock = time.clock()
-        #print('Time to check worst fru [TMO]: {0:3f}s'.format(tock-tick))
+        StopWatch.timer('check worst FRU [TMO]')
 
         return commmitments, fails, server_p, enclosure_p, server_e, enclosure_e
 
@@ -667,18 +657,19 @@ class Site:
             if replacing_fru.is_dead():
                 # FRU is already dead
                 # replace with original FRU rating
-                new_fru = self.shop.best_fit_fru(server.model, self.get_date(), self.number, server_e, enclosure_e,
-                                                 power_needed=replacing_fru.rating)
+                new_fru = self.shop.get_best_fit_fru(server.model, self.get_date(), self.number, server_e, enclosure_e,
+                                                     power_needed=replacing_fru.rating)
             else:
                 # FRU has life left
-                new_fru = self.shop.best_fit_fru(server.model, self.get_date(), self.number, server_e, enclosure_e,
-                             power_needed=replacing_fru.get_power(), energy_needed=replacing_fru.get_energy(), time_needed=replacing_fru.get_expected_life())
+                new_fru = self.shop.get_best_fit_fru(server.model, self.get_date(), self.number, server_e, enclosure_e,
+                                                     power_needed=replacing_fru.get_power(), energy_needed=replacing_fru.get_energy(),
+                                                     time_needed=replacing_fru.get_expected_life())
             old_fru = self.replace_fru(server_e, enclosure_e, new_fru)
             # FRU replaced an existing module
             self.shop.store_fru(old_fru, self.number, server_e, enclosure_e)
         else:
             # put in a brand new FRU
-            new_fru = self.shop.best_fit_fru(server.model, self.get_date(), self.number, server_e, enclosure_e, initial=True)
+            new_fru = self.shop.get_best_fit_fru(server.model, self.get_date(), self.number, server_e, enclosure_e, initial=True)
             self.replace_fru(server_e, enclosure_e, new_fru)
             
             # FRU was added to empty enclosure, so check for overloading

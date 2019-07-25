@@ -1,13 +1,47 @@
 # central warehouse for creating, storing and deploying components and fleet to manage all sites
 
-import time
-
 import pandas
 from dateutil.relativedelta import relativedelta
 from datetime import date
 from random import randrange
 from powerful import PowerCurves, PowerModules
 from components import FRU, Enclosure, Server
+from structure import StopWatch
+
+# template for new modules and servers
+##class Templates:
+##    def __init__(self, sql_db):
+##        self.sql_db = sql_db
+##        self.servers = {}
+##        self.modules = {}
+
+##    def find_server(self, model):
+##        server = None
+##        return server
+
+##    def ghost_server(self, model):
+##        pass
+
+##    def find_module(self, model, mark):
+##        if (model, mark) in self.modules:
+##            module = self.modules[(model, mark)]
+##        else:
+##            module = self.ghost_module(model, mark)
+##        return module
+
+##    def ghost_module(self, model, mark):
+##        serial = None # blank serial
+##        install_date = None # blank date
+
+##        power_curves = PowerCurves(self.sql_db.get_power_curves(model, mark))
+##        efficiency_curve = self.sql_db.get_efficiency_curve(model, mark)
+
+##        base = mark ##
+##        fru = FRU(serial, model, base, mark, power_curves, efficiency_curve, install_date, current_date=install_date)
+
+##        # add FRU template
+##        self.ghosts[(model, mark)] = fru
+##        pass
 
 # warehouse to store, repair and deploy old FRUs and create new FRUs
 class Shop:
@@ -222,8 +256,8 @@ class Shop:
         return queues
 
     # use a stored FRU or create a new one for power and energy requirements
-    def best_fit_fru(self, server_model, install_date, site_number, server_number, enclosure_number,
-                     power_needed=0, energy_needed=0, time_needed=0, max_power=0, initial=False):
+    def get_best_fit_fru(self, server_model, install_date, site_number, server_number, enclosure_number,
+                         power_needed=0, energy_needed=0, time_needed=0, max_power=None, initial=False):
         allowed_modules = self.sql_db.get_compatible_modules(server_model)
         
         junked = {'deployable': False} ##, 'junked': True}
@@ -233,7 +267,7 @@ class Shop:
             energies = self.list_energies(allowed_modules, time_needed, junked[location])
             queues[location] = self.find_fru(allowed_modules, junked=junked[location],
                                              power_needed=power_needed, energy_needed=energy_needed, time_needed=time_needed,
-                                             max_power=max_power if not False else None) #self.allow_ceiling_loss
+                                             max_power=max_power) #self.allow_ceiling_loss
         
         if (not initial) and len(self.deployable) and (not pandas.isna(queues['deployable'])):
             # there is a FRU available to deploy
@@ -248,12 +282,11 @@ class Shop:
         else:
             # there is not a FRU available, so create a new one
             if self.best:
-                #tick = time.clock()
+                StopWatch.timer('get_model [best fit FRU]')
                 model, mark = self.power_modules.get_model(install_date,
                                                            power_needed=power_needed, energy_needed=energy_needed, time_needed=time_needed,
                                                            best=self.best, server_model=server_model, allowed_fru_models=self.allowed_fru_models)
-                #tock = time.clock()
-                #print('Time to get_model [best fit FRU]: {:0.3f}s'.format(tock-tick))
+                StopWatch.timer('get_model [best fit FRU]')
             else:
                 model, mark = self.power_modules.get_model(install_date,
                                                            power_needed=power_needed, energy_needed=energy_needed, time_needed=time_needed,
