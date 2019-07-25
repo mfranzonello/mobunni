@@ -11,7 +11,7 @@ from components import FRU, Enclosure, Server
 
 # warehouse to store, repair and deploy old FRUs and create new FRUs
 class Shop:
-    def __init__(self, sql_db, install_date, junk_level=20, best=False, allow_ceiling_loss=False,
+    def __init__(self, sql_db, install_date, junk_level=20, best=False,
                  allowed_fru_models=None):
         self.sql_db = sql_db
         self.power_modules = PowerModules(sql_db)
@@ -19,7 +19,6 @@ class Shop:
         self.junk_level = junk_level
         self.deploy_months = 3
         self.best = best
-        self.allow_ceiling_loss = allow_ceiling_loss
 
         self.storage = []
         self.deployable = []
@@ -234,7 +233,7 @@ class Shop:
             energies = self.list_energies(allowed_modules, time_needed, junked[location])
             queues[location] = self.find_fru(allowed_modules, junked=junked[location],
                                              power_needed=power_needed, energy_needed=energy_needed, time_needed=time_needed,
-                                             max_power=max_power if not self.allow_ceiling_loss else None)
+                                             max_power=max_power if not False else None) #self.allow_ceiling_loss
         
         if (not initial) and len(self.deployable) and (not pandas.isna(queues['deployable'])):
             # there is a FRU available to deploy

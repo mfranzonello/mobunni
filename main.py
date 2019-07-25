@@ -32,14 +32,14 @@ def get_details(excel_int):
 def get_scenario(excel_int, scenario_number):
     print('Getting scenario {} details'.format(scenario_number+1))
     scenario_name, limits, target_size, start_date, contract_length, start_month, \
-        non_replace, repair, junk_level, best, allow_ceiling_loss, \
-        new_servers, existing_servers, allowed_fru_models = excel_int.get_scenario(scenario_number) #max_enclosures, plus_one_empty,
+        non_replace, repair, junk_level, best, \
+        new_servers, existing_servers, allowed_fru_models = excel_int.get_scenario(scenario_number)
 
     scenario = Scenario(scenario_number, scenario_name,
                         contract_length=contract_length, target_size=target_size, start_date=start_date, limits=limits,
                         new_servers=new_servers, existing_servers=existing_servers, allowed_fru_models=allowed_fru_models,
                         non_replace=non_replace, start_month=start_month,
-                        repair=repair, junk_level=junk_level, best=best, allow_ceiling_loss=allow_ceiling_loss)
+                        repair=repair, junk_level=junk_level, best=best)
     return scenario
 
 # run simulation
@@ -52,7 +52,11 @@ def run_simulation(details, scenario, sql_db):
 def save_results(project, scenario, simulation):
     inputs, site_performance, residuals, costs, fru_power, fru_efficiency, transactions = simulation.get_results()
     excelerator = Excelerator(path=None, filename='bpm_results_{}_{}'.format(project.name, scenario.name), extension='xlsx')  
-    excelerator.add_sheets({'Inputs': inputs, 'Power+Eff': site_performance, 'Residual': residuals, 'Costs': costs,
+    excelerator.add_sheets({'Inputs': inputs,
+                            'Power+Eff (avg)': site_performance['mean'],
+                            'Power+Eff (max)': site_performance['max'],
+                            'Power+Eff (min)': site_performance['min'],
+                            'Residual': residuals, 'Costs': costs,
                             'Power': fru_power, 'Efficiency': fru_efficiency, 'Transactions': transactions},
                            index=False)
     excelerator.to_excel(start=False)

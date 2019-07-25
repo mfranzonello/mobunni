@@ -42,7 +42,6 @@ class Scenario:
         self.repair = kwargs.get('repair', False)
         self.junk_level = kwargs.get('junk_level')
         self.best = kwargs.get('best', True)
-        self.allow_ceiling_loss = kwargs.get('allow_ceiling_loss', True)
 
     # save specifice inputs from a scenario
     def get_inputs(self):
@@ -63,7 +62,6 @@ class Scenario:
                                         ['repair threshold', self.repair],
                                         ['redeploy level', self.junk_level],
                                         ['use best FRU available', self.best],
-                                        ['allow ceiling loss with early deploys', self.allow_ceiling_loss]
                                         ])
         return inputs
 
@@ -102,7 +100,6 @@ class Simulation:
         self.repair = scenario.repair
         self.junk_level = scenario.junk_level
         self.best = scenario.best
-        self.allow_ceiling_loss = scenario.allow_ceiling_loss
 
         self.details_inputs = details.get_inputs()
         self.scenario_inputs = scenario.get_inputs()
@@ -113,7 +110,7 @@ class Simulation:
         min_date = self.sql_db.get_earliest_date()
         fleet = Fleet(self.target_size, self.n_sites, self.n_years, system_sizes, system_dates, self.start_date, min_date)
 
-        shop = Shop(self.sql_db, self.start_date, junk_level=self.junk_level, best=self.best, allow_ceiling_loss=self.allow_ceiling_loss,
+        shop = Shop(self.sql_db, self.start_date, junk_level=self.junk_level, best=self.best,
                     allowed_fru_models=self.allowed_fru_models)
         fleet.add_shop(shop)
 
@@ -235,10 +232,12 @@ class Simulation:
         # average the run performance
         performance = pandas.concat(self.site_performance)
         performance_gb = performance.drop(['site', 'year'], axis='columns').groupby(['date'])
-        performance_summary_mean = performance_gb.mean().reset_index()
-        performance_summary_max = performance_gb.max().reset_index()
-        performance_summary_min = performance_gb.min().reset_index()
-        performance_summary = performance_summary_mean
+        performance_mean = performance_gb.mean().reset_index()
+        performance_max = performance_gb.max().reset_index()
+        performance_min = performance_gb.min().reset_index()
+        site_performance = {'mean': performance_mean,
+                            'max': performance_max,
+                            'min': performance_min}
 
         # average the residual value
         residuals = pandas.concat(self.residuals)
@@ -255,4 +254,4 @@ class Simulation:
         # pull last transaction log 
         transaction_sample = self.transactions[-1]
 
-        return inputs, performance_summary, residual_summary, cost_summary, fru_power_sample, fru_efficiency_sample, transaction_sample
+        return inputs, site_performance, residual_summary, cost_summary, fru_power_sample, fru_efficiency_sample, transaction_sample

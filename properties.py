@@ -10,7 +10,7 @@ from math import ceil, floor
 class Site:    
     def __init__(self, number, shop, target_size, start_date, contract_length, limits, repair,
                  start_month=0, start_ctmo=1.0, non_replace=None,
-                 thresholds={'degraded': 0.0, 'inefficient': 0.0, 'deviated': 0.0, 'early deploy': 1.0, 'no deploy': 0.0}): 
+                 thresholds={'degraded': 0.0, 'inefficient': 0.0, 'deviated': 0.0, 'early deploy': 1.0, 'no deploy': 0.0, 'ceiling loss': 1}): 
 
         self.number = number
         self.shop = shop
@@ -575,7 +575,7 @@ class Site:
         #print('Time to get expected CTMO: {0:3f}s'.format(tock-tick))
 
         # CHECK PTMO??
-        ##expected_ptmo = SOMETHING
+        #expected_ptmo = 
 
         # CHECK IF THERE WILL BE CEILING LOSS
 

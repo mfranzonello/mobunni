@@ -545,7 +545,7 @@ class ExcelInt:
                 'ceff_limit': self.floater, 'weff_limit': self.floater, 'peff_limit': self.floater, 'window': self.inter,
                 'target_size': float, 'start_date': self.xldate, 'contract_length': int, 'contract_start': float, 'nonreplace': str,
                 'allow_repairs': bool, 'redeploy_level': self.inter, 'use_best_only': bool,
-                'new_server_model': str, 'enclosures': self.inter, 'plus_one_empty': bool, 'existing_server_model': str,
+                'new_server_base': str, 'new_server_model': str, 'existing_server_model': str,
                 }
 
         tables = ['AllowedModules', 'ExistingServers']
@@ -556,7 +556,7 @@ class ExcelInt:
         ctmo_limit, wtmo_limit, ptmo_limit, ceff_limit, weff_limit, peff_limit, window, \
             target_size, start_date, contract_length, start_month, \
             non_replace_string, repair, junk_level, best, \
-            server_model, max_enclosures, plus_one_empty, existing_nameplate = values_keys
+            new_server_base, new_server_model, existing_server_model = values_keys
 
         allowed_fru_models, existing_servers_df = values_tables
 
@@ -565,7 +565,8 @@ class ExcelInt:
                   'window': window}
         non_replace = [int(float(x)) for x in non_replace_string.split(',')] if len(non_replace_string) else []
 
-        existing_servers = {'df': existing_servers_df, 'model': existing_nameplate}
+        new_servers = {'base': new_server_base, 'model': new_server_model}
+        existing_servers = {'df': existing_servers_df, 'model': existing_server_model}
         if allowed_fru_models['model'].dropna().empty:
             allowed_fru_models = None
         
@@ -574,7 +575,7 @@ class ExcelInt:
 
         return scenario_name, limits, target_size, start_date, contract_length, start_month, \
             non_replace, repair, junk_level, best, \
-            server_model, max_enclosures, plus_one_empty, allowed_fru_models, existing_servers
+            new_servers, existing_servers, allowed_fru_models
 
     # total number of scenarios to explore
     def count_scenarios(self):
