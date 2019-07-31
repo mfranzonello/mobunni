@@ -477,13 +477,13 @@ class Fleet:
 
     # store site power and efficiency
     def store_site_performance(self, site):
-        self.site_performance[site.number] = site.performance
+        self.site_performance[site.number] = site.log_book.get_results('performance')
 
     # store FRU power and efficiency
     def store_fru_performance(self, site):
-        power = site.power.copy()
+        power = site.log_book.get_results('power')
         power.insert(0, 'site', site.number)
-        efficiency = site.efficiency.copy()
+        efficiency = site.log_book.get_results('efficiency')
         efficiency.insert(0, 'site', site.number)
         self.fru_performance[site.number] = {'power': power, 'efficiency': efficiency}
 

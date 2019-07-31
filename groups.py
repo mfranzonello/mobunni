@@ -1,7 +1,9 @@
+# collections of inputs to simplify values being passed
+
 from datetime import date
 from pandas import DataFrame
 
-# collection of inputs
+# generic collection
 class Group:
     def __init__(self):
         self.data = None
