@@ -9,31 +9,18 @@ from structure import StopWatch
 # group of energy servers
 class Site:    
     def __init__(self, number, shop, contract): 
-
         self.number = number
         self.shop = shop
 
-        self.target_size = contract.target_size
+        self.contract = contract
         self.system_size = 0
 
-        self.start_date = contract.start_date
-
-        self.contract_length = contract.length
-
-        self.log_book = LogBook(self.number, self.start_date, self.contract_length)
+        self.log_book = LogBook(self.number, self.contract.start_date, self.contract.length)
 
         self.limits = contract.limits
-        if self.limits['window'] is None:
-            self.limits['window'] = 1
 
         self.server_model = None
-
-        self.non_replace = contract.non_replace
-
         self.servers = []
-
-        self.start_month = int(contract.start_month)
-        self.start_ctmo = contract.start_ctmo
 
         self.month = int(contract.start_month)
 
@@ -56,7 +43,7 @@ class Site:
 
     # return current date for FRU installation
     def get_date(self):
-        date = self.start_date + relativedelta(months=self.month)
+        date = self.contract.start_date + relativedelta(months=self.month)
         return date
 
     # return years into the contract
@@ -66,7 +53,7 @@ class Site:
 
     # return monst left in the contract
     def get_months_remaining(self):
-        remaining = self.contract_length * 12 - self.month
+        remaining = self.contract.length * 12 - self.month
         return remaining
 
     # return years left in the contract
@@ -81,7 +68,7 @@ class Site:
 
     # contract has expired
     def is_expired(self):
-        expired = self.get_years_passed() >= self.contract_length
+        expired = self.get_years_passed() >= self.contract.length
         return expired
 
     # sum up to nameplate rating of each installed energy server
@@ -121,7 +108,7 @@ class Site:
 
     # caculate energy already produced at all servers
     def get_energy_produced(self):
-        ctmo = self.performance.loc[self.month - 1, 'CTMO'] if self.month > 0 else self.start_ctmo
+        ctmo = self.log_book.get_result('performance', 'CTMO', self.month - 1) if self.month > 0 else self.log_book.start_ctmo
         site_energy = ctmo * self.month * self.system_size 
         return site_energy
 
@@ -190,12 +177,8 @@ class Site:
             self.server_model = self.shop.get_server_model(new_servers['model'])
             self.populate_new(new_servers)
 
-        # prepare performance storage
-        reindex = ['date'] + ['ES{}|{}'.format(s_n, e_n) \
-            for s_n in range(len(self.servers)) \
-            for e_n in ['ENC{}'.format(f_n) for f_n in range(len(self.servers[s_n].enclosures))] + ['=', '-']]
-        self.log_book.power = self.log_book.power.reindex(reindex, axis='columns')
-        self.log_book.efficiency = self.log_book.efficiency.reindex(reindex, axis='columns')
+        # prepare log book storage
+        self.log_book.set_up(self.servers)
 
     # add existing FRUs to site
     def populate_existing(self, existing_servers):
@@ -232,13 +215,13 @@ class Site:
             self.add_server(server)
             
         # set system size
-        self.system_size = self.target_size
+        self.system_size = self.contract.target_size
 
     # add new FRUs to site
     def populate_new(self, new_servers):
         # no existing FRUs, start site from scratch
         # divide power needed by server nameplate to determine number of servers needed
-        server_model_number, servers_needed = self.shop.prepare_servers(new_servers, self.target_size)
+        server_model_number, servers_needed = self.shop.prepare_servers(new_servers, self.contract.target_size)
 
         # add servers needed to hit target size
         for server_number in range(servers_needed):
@@ -247,9 +230,9 @@ class Site:
 
             # add FRUs to hit target power
             while self.servers[server_number].has_empty() and \
-                (self.servers[server_number].get_power() < server.nameplate) and (self.get_site_power() < self.target_size):
+                (self.servers[server_number].get_power() < server.nameplate) and (self.get_site_power() < self.contract.target_size):
                 enclosure_number = self.servers[server_number].get_empty_enclosure()
-                power_needed = self.target_size - self.get_site_power()
+                power_needed = self.contract.target_size - self.get_site_power()
 
                 fru = self.shop.get_best_fit_fru(self.server_model, self.get_date(), self.number, server_number, enclosure_number,
                                                  power_needed=power_needed, initial=True)
@@ -267,14 +250,6 @@ class Site:
                     self.shop.store_fru(old_fru, self.number, server.number, enclosure.number, final=True, repair=deviated)
         return
         
-
-    # add an enclosure to energy server
-    def add_enclosure(self, server_number, plus_one=False):
-        server = self.servers[server_number]
-        enclosure_number = len(server.enclosures)
-        enclosure = self.shop.create_enclosure(self.number, server, enclosure_number, plus_one)
-        server.add_enclosure(enclosure)
-
     # move FRUs between enclosures
     def swap_frus(self, server1, enclosure1, server2, enclosure2):
         # take out first fru
@@ -289,52 +264,10 @@ class Site:
         old_fru = self.servers[server_number].replace_fru(enclosure_number=enclosure_number, fru=fru)
         return old_fru
 
-    # see if swapping FRUs minimizes ceiling loss
-    def is_balanceable(self):
-        # calculate ceiling loss, headroom and empty enclosures
-        server_ceiling_loss = self.get_server_ceiling_loss()
-        server_headroom = self.get_server_headroom()
-        server_has_empty = self.get_server_has_empty()
-        server_available = [server_headroom[s] if server_has_empty[s] else 0 for s in range(len(server_headroom))]
-
-        # see if any server is overloaded
-        max_loss = max(server_ceiling_loss)
-
-        # see if any server has room and an empty slot
-        max_room = max(server_available)
-
-        # check if there is potential to minimize ceiling loss
-        balanceable = (max_loss > 0) and (max_room > 0)
-
-        if balanceable:
-            # start with highest overloaded site
-            server_over = server_ceiling_loss.index(max_loss)
-            # find the highest underloaded site
-            server_under = server_available.index(max_room)
-            # take out smallest module that is greater than or equal to ceiling loss and move to server with an empty slot
-            fru_power = self.servers[server_over].get_fru_power()
-            enclosure_over = fru_power.index(min(fru_power))
-            enclosure_under = self.servers[server_under].get_empty_enclosure()
-
-            # check if swapping modules improves ceiling loss
-            ceiling_loss_pre = self.get_site_ceiling_loss()
-            self.swap_frus(server_over, enclosure_over, server_under, enclosure_under)
-            ceiling_loss_post = self.get_site_ceiling_loss()
-            self.swap_frus(server_over, enclosure_over, server_under, enclosure_under)
-            balanceable = ceiling_loss_pre - ceiling_loss_post > 0
-
-        if not balanceable:
-            server_over = None
-            enclosure_over = None
-            server_under = None
-            enclosure_under = None
-
-        return balanceable, server_over, enclosure_over, server_under, enclosure_under
-
     # move FRUs around to minimize ceiling loss
     def balance_site(self):
         # check balance
-        balanceable, server_over, enclosure_over, server_under, enclosure_under = self.is_balanceable()
+        balanceable, server_over, enclosure_over, server_under, enclosure_under = Inspector.is_balanceable(self)
         
         # if there is a potential for intersite redeploy, move FRUs
         while balanceable:
@@ -346,7 +279,7 @@ class Site:
             self.shop.balance_frus(fru, self.number, server_over, enclosure_over, server_under, enclosure_under)
 
             # see if more swaps can be made
-            balanceable, server_over, enclosure_over, server_under, enclosure_under = self.is_balanceable()
+            balanceable, server_over, enclosure_over, server_under, enclosure_under = Inspector.is_balanceable(self)
         
     # store performance at FRU and site level
     def store_performance(self):
@@ -356,35 +289,46 @@ class Site:
     
     # store cumulative, windowed and instantaneous TMO and efficiency
     def store_site_performance(self):
-        self.log_book.performance.loc[self.month, 'year'] = self.get_year()
+        if self.limits['window']:
+            window_start = max(0, self.month - self.limits['window'])
+
+        self.log_book.store_result('performance', 'year', self.month, self.get_year())
 
         power = self.get_site_power()
-        self.log_book.performance.loc[self.month, 'power'] = power
+        self.log_book.store_result('performance', 'power', self.month, power)
 
-        ctmo_adj = self.start_month/(self.month+1)
-        ctmo = (self.log_book.performance['power'].loc[:self.month].mean() / self.system_size)*(1-ctmo_adj) + (self.start_ctmo)*ctmo_adj
-        self.log_book.performance.loc[self.month, 'CTMO'] = ctmo
+        ctmo_adj = self.contract.start_month/(self.month+1)
+        ctmo = (self.log_book.get_result('performance', 'power', self.month, function='mean') / self.system_size)*(1-ctmo_adj) + \
+            (self.log_book.start_ctmo)*ctmo_adj
+        self.log_book.store_result('performance', 'CTMO', self.month, ctmo)
 
-        wtmo = self.log_book.performance['power'].loc[max(0,self.month-self.limits['window']):self.month].mean() / self.system_size
-        self.log_book.performance.loc[self.month, 'WTMO'] = wtmo
+        if self.limits['window']:
+            wtmo = self.log_book.get_result('performance', 'power', self.month, start_month=window_start, function='mean') / self.system_size
+            self.log_book.store_result('performance', 'WTMO', self.month, wtmo)
+        else:
+            wtmo = None
 
         ptmo = power / self.system_size
-        self.log_book.performance.loc[self.month, 'PTMO'] = ptmo
+        self.log_book.store_result('performance', 'PTMO', self.month, ptmo)
         
         efficiency = self.get_site_efficiency()
-        self.log_book.performance.loc[self.month, 'fuel'] = self.log_book.performance.loc[self.month, 'power'] / efficiency
+        fuel = self.log_book.get_result('performance', 'power', self.month) / efficiency
+        self.log_book.store_result('performance', 'fuel', self.month, fuel)
 
-        ceff = self.log_book.performance['power'].loc[:self.month].sum() / self.log_book.performance['fuel'].loc[:self.month].sum()
-        self.log_book.performance.loc[self.month, 'Ceff'] = ceff
+        ceff = self.log_book.get_result('performance', 'power', self.month, sum) / self.log_book.get_result('performance', 'fuel', self.month, sum)
+        self.log_book.store_result('performance', 'Ceff', self.month, ceff)
 
-        weff = self.log_book.performance['power'].loc[max(0,self.month-self.limits['window']):self.month].sum() \
-            / self.log_book.performance['fuel'].loc[max(0,self.month-self.limits['window']):self.month].sum()
-        self.log_book.performance.loc[self.month, 'Weff'] = weff
+        if self.limits['window']:
+            weff = self.log_book.get_result('performance', 'power', self.month, start_month=window_start, function='sum') \
+                / self.log_book.get_result('performance', 'fuel', self.month, start_month=window_start, function='sum')
+            self.log_book.store_result('performance', 'Weff', self.month, weff)
+        else:
+            weff = None
 
         peff = efficiency
-        self.log_book.performance.loc[self.month, 'Peff'] = peff
+        self.log_book.store_result('performance', 'Peff', self.month, peff)
         
-        self.log_book.performance.loc[self.month, 'ceiling loss'] = self.get_site_ceiling_loss()
+        self.log_book.store_result('performance', 'ceiling loss', self.month, self.get_site_ceiling_loss())
 
         pairs = [[ctmo, self.limits['CTMO']], [wtmo, self.limits['WTMO']], [ptmo, self.limits['PTMO']],
                  [ceff, self.limits['Ceff']], [weff, self.limits['Weff']], [peff, self.limits['Peff']]]
@@ -410,11 +354,11 @@ class Site:
                     power = pandas.np.nan
                     efficiency = pandas.np.nan
 
-                self.log_book.power.loc[self.month, 'ES{}|ENC{}'.format(server.number, enclosure.number)] = power
-                self.log_book.efficiency.loc[self.month, 'ES{}|ENC{}'.format(server.number, enclosure.number)] = efficiency
+                self.log_book.store_result('power', self.month, 'ES{}|ENC{}'.format(server.number, enclosure.number), power)
+                self.log_book.store_result('efficiency', self.month, 'ES{}|ENC{}'.format(server.number, enclosure.number), efficiency)
                 
-            self.log_book.power.loc[self.month, 'ES{}|='.format(server.number)] = server.get_power()
-            self.log_book.power.loc[self.month, 'ES{}|-'.format(server.number)] = server.get_ceiling_loss()
+            self.log_book.store_result('power', self.month, 'ES{}|='.format(server.number), server.get_power())
+            self.log_book.store_result('power', self.month, 'ES{}|-'.format(server.number), server.get_ceiling_loss())
 
     # use inspector to check site
     def check_site(self):
@@ -427,4 +371,3 @@ class Site:
 
         # move to next month
         self.month += 1
-

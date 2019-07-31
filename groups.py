@@ -41,6 +41,7 @@ class Contract(Group):
 
         self.data = self.set_data()
 
+    # change the terms of the contract
     def change_terms(self, **kwargs):
         contract = Contract(length=kwargs.get('length', self.length),
                             target_size=kwargs.get('length', self.target_size),
@@ -51,6 +52,13 @@ class Contract(Group):
                             start_ctmo=self.start_ctmo)
 
         return contract
+
+    # FRUs can be installed during given year of contract
+    def is_replaceable_year(self, year):
+        downside = (self.non_replace is None) or (len(self.non_replace) == 0) or \
+            not (self.non_replace[0] <= year <= self.non_replace[-1])
+
+        return downside
 
     def set_data(self):
         self.data = [['contract length', self.length],
