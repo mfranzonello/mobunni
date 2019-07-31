@@ -45,14 +45,17 @@ from structure import StopWatch
 
 # warehouse to store, repair and deploy old FRUs and create new FRUs
 class Shop:
-    def __init__(self, sql_db, install_date, junk_level=20, best=False,
+    def __init__(self, sql_db, install_date, tweaks,
                  allowed_fru_models=None):
         self.sql_db = sql_db
         self.power_modules = PowerModules(sql_db)
 
-        self.junk_level = junk_level
-        self.deploy_months = 3
-        self.best = best
+        self.thresholds = self.sql_db.get_thresholds()
+
+        self.junk_level = tweaks.junk_level
+        self.deploy_months = tweaks.deploy_months
+        self.best = tweaks.best
+        self.repair = tweaks.repair
 
         self.storage = []
         self.deployable = []
@@ -283,15 +286,25 @@ class Shop:
             # there is not a FRU available, so create a new one
             if self.best:
                 StopWatch.timer('get_model [best fit FRU]')
-                model, mark = self.power_modules.get_model(install_date,
-                                                           power_needed=power_needed, energy_needed=energy_needed, time_needed=time_needed,
-                                                           best=self.best, server_model=server_model, allowed_fru_models=self.allowed_fru_models)
+                module = self.power_modules.get_model(install_date,
+                                                      power_needed=power_needed, max_power=max_power,
+                                                      energy_needed=energy_needed, time_needed=time_needed,
+                                                      best=self.best, server_model=server_model, allowed_fru_models=self.allowed_fru_models)
                 StopWatch.timer('get_model [best fit FRU]')
             else:
-                model, mark = self.power_modules.get_model(install_date,
-                                                           power_needed=power_needed, energy_needed=energy_needed, time_needed=time_needed,
-                                                           bespoke=not initial, server_model=server_model, allowed_fru_models=self.allowed_fru_models)
-            fru = self.create_fru(model, mark, install_date, site_number, server_number, enclosure_number, initial)
+                module = self.power_modules.get_model(install_date,
+                                                      power_needed=power_needed, max_power=max_power,
+                                                      energy_needed=energy_needed, time_needed=time_needed,
+                                                      bespoke=not initial, server_model=server_model, allowed_fru_models=self.allowed_fru_models)
+
+            if module is not None:
+                # can create a FRU accoring to requirements
+                model, mark = module
+                fru = self.create_fru(model, mark, install_date, site_number, server_number, enclosure_number, initial)
+
+            else:
+                # cannot create a FRU according to requirements
+                fru = None
 
         return fru
 

@@ -7,23 +7,21 @@ from structure import StopWatch
 
 # group of energy servers
 class Site:    
-    def __init__(self, number, shop, target_size, start_date, contract_length, limits, repair,
-                 start_month=0, start_ctmo=1.0, non_replace=None,
-                 thresholds={'degraded': 0.0, 'inefficient': 0.0, 'deviated': 0.0, 'early deploy': 1.0, 'no deploy': 0.0, 'ceiling loss': 1}): 
+    def __init__(self, number, shop, contract): 
 
         self.number = number
         self.shop = shop
 
-        self.target_size = target_size
+        self.target_size = contract.target_size
         self.system_size = 0
 
-        self.start_date = start_date
+        self.start_date = contract.start_date
 
-        self.contract_length = contract_length
+        self.contract_length = contract.length
 
-        date_range = pandas.date_range(start=start_date, periods=contract_length*12, freq='MS')
+        date_range = pandas.date_range(start=self.start_date, periods=self.contract_length*12, freq='MS')
         self.performance = pandas.DataFrame(columns=['site', 'date', 'year', 'power', 'CTMO', 'WTMO', 'PTMO', 'fuel', 'Ceff', 'Weff', 'Peff', 'ceiling loss'],
-                                    index=range(contract_length*12),
+                                    index=range(self.contract_length*12),
                                     data=0)
 
         self.performance.loc[:, 'site'] = self.number + 1
@@ -33,23 +31,20 @@ class Site:
         self.power.loc[:, 'date'] = date_range
         self.efficiency = self.power.copy()
 
-        self.limits = limits
+        self.limits = contract.limits
         if self.limits['window'] is None:
             self.limits['window'] = 1
 
-        self.thresholds = thresholds
-        self.repair = repair
-
         self.server_model = None
 
-        self.non_replace = non_replace
+        self.non_replace = contract.non_replace
 
         self.servers = []
 
-        self.start_month = int(start_month)
-        self.start_ctmo = start_ctmo
+        self.start_month = int(contract.start_month)
+        self.start_ctmo = contract.start_ctmo
 
-        self.month = int(start_month)
+        self.month = int(contract.start_month)
 
     def __str__(self):
         m_string = max(0, self.month-1)
@@ -178,6 +173,10 @@ class Site:
         server_headroom = [server.get_headroom() for server in self.servers]
         return server_headroom
 
+    # anticipate where modules could go without going over
+    def get_max_headroom(self):
+        return
+
     # servers with at least one empty enclosure
     def get_server_has_empty(self):
         server_has_empty = [server.has_empty() for server in self.servers]
@@ -253,10 +252,6 @@ class Site:
         # add servers needed to hit target size
         for server_number in range(servers_needed):
             server = self.shop.create_server(self.number, server_number, server_model_number=server_model_number)
-            #for enclosure_number in range(self.max_enclosures):
-            #    plus_one = plus_one_empty and (enclosure_number == self.max_enclosures-1)
-            #    enclosure = self.shop.create_enclosure(self.number, server, enclosure_number, plus_one=plus_one)
-            #    server.add_enclosure(enclosure)
             self.add_server(server)
 
             # add FRUs to hit target power
@@ -277,18 +272,18 @@ class Site:
             for enclosure in server.enclosures:
                 if enclosure.is_filled():
                     old_fru = self.replace_fru(server.number, enclosure.number, None)
-                    deviated = old_fru.is_deviated(self.thresholds['deviated'])
+                    deviated = old_fru.is_deviated(self.shop.thresholds['deviated'])
                     self.shop.store_fru(old_fru, self.number, server.number, enclosure.number, final=True, repair=deviated)
         return
         
     # FRUs that have degraded or are less efficienct
     def get_replaceable_frus(self, by):
         if by in ['power', 'energy']:
-            replaceable = [[enclosure.fru.is_degraded(self.thresholds['degraded']) \
+            replaceable = [[enclosure.fru.is_degraded(self.shop.thresholds['degraded']) \
                 if enclosure.is_filled() else True for enclosure in server.enclosures] for server in self.servers]
 
         elif by in ['efficiency']:
-            replaceable = [[enclosure.fru.is_inefficient(self.thresholds['inefficient']) \
+            replaceable = [[enclosure.fru.is_inefficient(self.shop.thresholds['inefficient']) \
                 if enclosure.is_filled() else True for enclosure in server.enclosures] for server in self.servers]
 
         replaceable_frus = pandas.DataFrame(data=replaceable)
@@ -504,16 +499,16 @@ class Site:
         # check if FRUs can be replaced this year
         if ((self.non_replace is None) or (len(self.non_replace) == 0) or \
             not (self.non_replace[0] <= self.get_year() <= self.non_replace[-1])) and \
-            self.get_years_remaining() > self.thresholds['no deploy']:
+            self.get_years_remaining() > self.shop.thresholds['no deploy']:
             
             # check if FRUs need to be repaired
-            if self.repair:
+            if self.shop.repair:
                 StopWatch.timer('check repairs')
                 commitments, fails = self.check_repairs()
                 StopWatch.timer('check repairs')
 
             # check for early deploy opportunity
-            if (self.limits['CTMO'] is not None) and (self.get_years_remaining() <= self.thresholds['early deploy']):
+            if (self.limits['CTMO'] is not None) and (self.get_years_remaining() <= self.shop.thresholds['early deploy']):
                 StopWatch.timer('check early deploy')
                 commitments, fails = self.check_deploys(commitments)
                 StopWatch.timer('check early deploy')
@@ -548,7 +543,7 @@ class Site:
     def check_repairs(self):
         for server in self.servers:
             for enclosure in server.enclosures:
-                if enclosure.is_filled() and enclosure.fru.is_deviated(self.thresholds['deviated']):
+                if enclosure.is_filled() and enclosure.fru.is_deviated(self.shop.thresholds['deviated']):
                     # FRU must be repaired
                     # pull the old FRU
                     old_fru = self.replace_fru(server.number, enclosure.number, None)
@@ -572,8 +567,8 @@ class Site:
 
         # CHECK IF THERE WILL BE CEILING LOSS
 
-        if self.check_fail(expected_ctmo, self.limits['CTMO'] + self.thresholds['ctmo pad']):
-            additional_energy = (self.limits['CTMO'] + self.thresholds['ctmo pad']) * self.contract_length * 12 * self.system_size \
+        if self.check_fail(expected_ctmo, self.limits['CTMO'] + self.shop.thresholds['ctmo pad']):
+            additional_energy = (self.limits['CTMO'] + self.shop.thresholds['ctmo pad']) * self.contract_length * 12 * self.system_size \
                 - (self.get_energy_produced() + self.get_energy_remaining())
             
             server_d, enclosure_d = self.get_worst_fru('energy')

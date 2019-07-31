@@ -112,7 +112,7 @@ class PowerModules:
         self.sql_db = sql_db
 
     # find best new power module available
-    def get_model(self, install_date, power_needed=0, energy_needed=0, time_needed=0, best=False, server_model=None, allowed_fru_models=None): ## FILTERED
+    def get_model(self, install_date, power_needed=0, max_power=None, energy_needed=0, time_needed=0, best=False, server_model=None, allowed_fru_models=None):
         StopWatch.timer('get buildable modules [Power Modules]')
         buildable_modules = self.sql_db.get_buildable_modules(install_date, server_model=server_model, allowed=allowed_fru_models)
         StopWatch.timer('get buildable modules [Power Modules]')
@@ -136,6 +136,10 @@ class PowerModules:
         else:
             # choose the biggest model available
             filtered_power_modules = buildable_modules[buildable_modules['rating'] == max_rating]
+
+        if max_power is not None:
+            filtered_power_modules = filtered_power_modules[filtered_power_modules['rating'] <= max_power]
+
 
         # check energy requirements
         max_energy = buildable_modules['energy'].max()
