@@ -1,11 +1,13 @@
 # central warehouse for creating, storing and deploying components and fleet to manage all sites
 
-import pandas
+from pandas import DataFrame, Series, concat, to_datetime, isna
+from numpy import nan
 from dateutil.relativedelta import relativedelta
 from datetime import date
 from random import randrange
 from powerful import PowerCurves, PowerModules
 from components import FRU, Enclosure, Server
+
 from structure import StopWatch
 
 # template for new modules and servers
@@ -47,9 +49,9 @@ class Templates:
 # record of transactions and results across shop and fleet
 class LogBook:
     def __init__(self):
-        self.transactions = pandas.DataFrame(columns=['date', 'serial', 'model', 'mark', 'power', 'efficiency', 'action',
+        self.transactions = DataFrame(columns=['date', 'serial', 'model', 'mark', 'power', 'efficiency', 'action',
                                                       'direction', 'site', 'server', 'enclosure', 'service cost'])
-        self.residuals = pandas.Series()
+        self.residuals = Series()
         self.performance = {'site': {}, 'fru': {}}
 
     # record log of transactions
@@ -96,26 +98,26 @@ class LogBook:
 
     # return residual value
     def summarize_residuals(self, site_number):
-        residuals = pandas.DataFrame(data=self.residuals[self.residuals.index==site_number], columns=['residual'])
+        residuals = DataFrame(data=self.residuals[self.residuals.index==site_number], columns=['residual'])
         return residuals
 
     # return series of value if site is target site
     def identify_target(self, sites, site_number, site_col='site', site_adder=True, target_col='target'):
         target_series = sites[site_col] == (site_number + site_adder)
-        target_identified = pandas.concat([sites, target_series.rename(target_col)], axis='columns')
+        target_identified = concat([sites, target_series.rename(target_col)], axis='columns')
 
         return target_identified
 
     # combine transactions by year, site and action
     def summarize_transactions(self, site_number):
         transactions_yearly = self.get_transactions()
-        transactions_yearly.insert(0, 'year', pandas.to_datetime(transactions_yearly['date']).dt.year)
+        transactions_yearly.insert(0, 'year', to_datetime(transactions_yearly['date']).dt.year)
         transactions_gb = transactions_yearly[['year', 'site', 'action', 'service cost']].groupby(['year', 'site', 'action'])
         
         transactions_sum = transactions_gb.sum()[['service cost']]
         transactions_count = transactions_gb.count()[['service cost']].rename(columns={'service cost': 'count'})
         
-        transactions_summarized = pandas.concat([transactions_count, transactions_sum], axis='columns').reset_index()
+        transactions_summarized = concat([transactions_count, transactions_sum], axis='columns').reset_index()
 
         transactions = self.identify_target(transactions_summarized, site_number)
 
@@ -149,8 +151,6 @@ class Shop:
         self.next_serial = {'ES': 0, 'PWM': 0, 'ENC': 0}
 
         self.log_book = LogBook()
-        ##self.transactions = pandas.DataFrame(columns=['date', 'serial', 'model', 'mark', 'power', 'efficiency', 'action',
-        ##                                              'direction', 'site', 'server', 'enclosure', 'service cost'])
 
     # record log of transactions
     def transact(self, serial, model, mark, power, efficiency,
@@ -274,7 +274,7 @@ class Shop:
             (powers.where(powers > 0) if power_needed > 0 else 1) * \
             (powers.where(powers < (max_power - power_needed)) if max_power is not None else 1) * \
             (energies.where(energies > 0)/time_needed if energy_needed > 0 else 1)
-        queue = found.idxmin() if len(found) else pandas.np.nan
+        queue = found.idxmin() if len(found) else nan
 
         return queue
 
@@ -292,7 +292,7 @@ class Shop:
             powers_list = [fru.get_power() if fru.model in allowed_models.to_list() else 0 \
                 for fru in self.deployable]
 
-        powers = pandas.Series(powers_list)
+        powers = Series(powers_list)
         return powers
 
     # get energy value of each fru in storage
@@ -304,7 +304,7 @@ class Shop:
             energies_list = [fru.get_energy(months=time_needed) if fru.model in allowed_models.to_list() else 0 \
                 for fru in self.deployable]
 
-        energies = pandas.Series(energies_list)
+        energies = Series(energies_list)
         return energies
 
     # return queue of queues
@@ -331,12 +331,12 @@ class Shop:
                                              power_needed=power_needed, energy_needed=energy_needed, time_needed=time_needed,
                                              max_power=max_power) #self.allow_ceiling_loss
         
-        if (not initial) and len(self.deployable) and (not pandas.isna(queues['deployable'])):
+        if (not initial) and len(self.deployable) and (not isna(queues['deployable'])):
             # there is a FRU available to deploy
             queue = queues['deployable']
             fru = self.deploy_fru(queue, site_number, server_number, enclosure_number)
 
-        ##elif (not initial) and len(self.junk) and (not pandas.isna(queues['deployable'])):
+        ##elif (not initial) and len(self.junk) and (not isna(queues['deployable'])):
         ##    # there is a FRU available to overhaul
         ##    queue = self.list_queues(junked=True)[queues['junked']]
         ##    fru = self.overhaul_fru(queue, mark, site_number, server_number, enclosure_nunber)

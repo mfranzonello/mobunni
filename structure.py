@@ -1,6 +1,7 @@
 # project selection and functions to read and write database and Excel data
 
-import pandas
+from pandas import DataFrame, ExcelFile, ExcelWriter, read_sql, to_numeric
+from numpy import nan
 import os
 import getpass
 import xlrd
@@ -58,25 +59,25 @@ class SQLDB:
     # earliest historical date there is an energy server and power module available 
     def get_earliest_date(self):
         sql = 'SELECT initial_date FROM Module ORDER BY initial_date LIMIT 1'
-        earliest_date = pandas.read_sql(sql, self.connection, parse_dates=['initial_date']).squeeze()
+        earliest_date = read_sql(sql, self.connection, parse_dates=['initial_date']).squeeze()
         return earliest_date
 
     # select a table from the database
     def get_table(self, table):
         sql = 'SELECT * FROM {}'.format(table)
-        table = pandas.read_sql(sql, self.connection)
+        table = read_sql(sql, self.connection)
         return table
 
     # select the thresholds for FRU repairs and redeploys
     def get_thresholds(self):
         sql = 'SELECT * from Threshold'
-        thresholds = pandas.read_sql(sql, self.connection, index_col='item').squeeze()
+        thresholds = read_sql(sql, self.connection, index_col='item').squeeze()
         return thresholds
 
     # select latest energy server model
     def get_latest_server_model(self, install_date, target_model=None):
         sql = 'SELECT model FROM Module WHERE initial_date < "{}" ORDER BY rating DESC'.format(install_date)
-        server_models = pandas.read_sql(sql, self.connection)
+        server_models = read_sql(sql, self.connection)
         
         if (target_model is not None) and (target_model in server_models['model'].to_list()):
             server_model = target_model
@@ -88,7 +89,7 @@ class SQLDB:
     # select power modules compatible with server model
     def get_compatible_modules(self, server_model):
         sql = 'SELECT module FROM Compatibility WHERE server IS "{}"'.format(server_model)
-        allowed_modules = pandas.read_sql(sql, self.connection).squeeze()
+        allowed_modules = read_sql(sql, self.connection).squeeze()
         return allowed_modules
 
     # select cost for shop action
@@ -111,7 +112,7 @@ class SQLDB:
         wheres = ' AND '.join(where_list)
         selects = ','.join(['cost'] + max_list)
         sql = 'SELECT {} FROM Cost WHERE {}'.format(selects, wheres)
-        costs = pandas.read_sql(sql, self.connection)
+        costs = read_sql(sql, self.connection)
 
         if len(costs):
             for max_value in max_list:
@@ -126,7 +127,7 @@ class SQLDB:
     # select rating of power module
     def get_module_rating(self, model, mark):
         sql = 'SELECT rating FROM Module WHERE model IS "{}" and mark IS "{}"'.format(model, mark)
-        rating = pandas.read_sql(sql, self.connection).iloc[0].squeeze()
+        rating = read_sql(sql, self.connection).iloc[0].squeeze()
         return rating
 
     # select new and bespoke options for overhauls
@@ -137,13 +138,13 @@ class SQLDB:
                       ('initial_date', '<=', install_date)]
         wheres = ' AND '.join('({} {} "{}")'.format(this, to, that) for (this, to, that) in where_list)
         sql = 'SELECT mark FROM Module WHERE {}'.format(model, base, install_date, wheres)
-        bespokes = pandas.read_sql(sql, self.connection).squeeze()
+        bespokes = read_sql(sql, self.connection).squeeze()
         return bespokes
 
     # select default server sizes
     def get_server_nameplates(self, server_model_class):
         sql = 'SELECT model_number, nameplate FROM Server WHERE standard IS 1'
-        server_details = pandas.read_sql(sql, self.connection)
+        server_details = read_sql(sql, self.connection)
         server_nameplates = server_details.sort_values('nameplate', ascending=False)
         return server_nameplates
 
@@ -157,7 +158,7 @@ class SQLDB:
         else:
             sql += 'WHERE (model IS "{}") AND (standard IS NOT -1)'.format(server_model_class)
 
-        server_details = pandas.read_sql(sql, self.connection)
+        server_details = read_sql(sql, self.connection)
 
         if server_model_number is None:
             if len(server_details[\
@@ -182,12 +183,12 @@ class SQLDB:
     # select power modules avaible to create at a date
     def get_buildable_modules(self, install_date, server_model=None, allowed=None):
         sql = 'SELECT model, mark FROM Module WHERE initial_date <= "{}" AND NOT bespoke'.format(install_date)
-        buildable_modules = pandas.read_sql(sql, self.connection)
+        buildable_modules = read_sql(sql, self.connection)
 
         sql = 'SELECT DISTINCT model, mark FROM PowerCurve'
-        power_modules = pandas.read_sql(sql, self.connection)
+        power_modules = read_sql(sql, self.connection)
         sql = 'SELECT DISTINCT model, mark FROM EfficiencyCurve'
-        efficiency_modules = pandas.read_sql(sql, self.connection)
+        efficiency_modules = read_sql(sql, self.connection)
         
         buildable_modules = buildable_modules[\
             buildable_modules['model'].isin(power_modules['model']) &\
@@ -212,10 +213,10 @@ class SQLDB:
         rating = self.get_module_rating(model, mark)
         sql = 'SELECT percentile, month, quarter, kw FROM PowerCurve WHERE model IS "{}" and mark IS "{}"'.format(model, mark)
 
-        power_curves_periodic = pandas.read_sql(sql, self.connection)
+        power_curves_periodic = read_sql(sql, self.connection)
         
         # determine if monthly or quarterly
-        quarterly = not power_curves_periodic['quarter'].apply(pandas.to_numeric, errors='coerce').dropna().empty
+        quarterly = not power_curves_periodic['quarter'].apply(to_numeric, errors='coerce').dropna().empty
         
         # reshape and interpolate
         power_curves = power_curves_periodic.pivot(index='percentile', columns='quarter' if quarterly else 'month')['kw']
@@ -231,7 +232,7 @@ class SQLDB:
     # select efficiency curves for a power module model
     def get_efficiency_curve(self, model, mark):
         sql = 'SELECT month, kw FROM EfficiencyCurve WHERE model IS "{}" and mark IS "{}"'.format(model, mark)
-        efficiency_curve = pandas.read_sql(sql, self.connection)
+        efficiency_curve = read_sql(sql, self.connection)
         efficiency_curve.index = efficiency_curve.loc[:, 'month']-1
         efficiency_curve = efficiency_curve['kw'].dropna(how='all')
 
@@ -240,7 +241,7 @@ class SQLDB:
     # select system sizes and full power date of historical distribution
     def get_system_sizes(self):
         sql = 'SELECT system_size, full_power_date FROM Site'
-        systems = pandas.read_sql(sql, self.connection, parse_dates=['full_power_date'])
+        systems = read_sql(sql, self.connection, parse_dates=['full_power_date'])
         system_sizes = systems['system_size']
         system_dates = systems['full_power_date']
         return system_sizes, system_dates
@@ -320,7 +321,7 @@ class SQLDB:
 
             # convert series to dataframe
             if curve_name == 'efficiency':
-                curve = pandas.DataFrame(curve)
+                curve = DataFrame(curve)
 
             # add period
             period = curve.index.name
@@ -330,9 +331,9 @@ class SQLDB:
             if curve_name == 'power':
                 curve = curve.melt(id_vars = period, value_name = 'kw')
                 if 'quarter' not in curve.columns:
-                    curve.insert(curve.columns.to_list().index('month') + 1, 'quarter', pandas.np.nan)
+                    curve.insert(curve.columns.to_list().index('month') + 1, 'quarter', nan)
                 elif 'month' not in curve.columns:
-                    curve.insert(curve.columns.to_list().index('quarter'), 'month', pandas.np.nan)
+                    curve.insert(curve.columns.to_list().index('quarter'), 'month', nan)
                 
             # add module descriptors
             curve.insert(0, 'model', change['change']['model'][-1])
@@ -435,7 +436,7 @@ class ExcelSeer:
 
     # read each named table to a dictionary of dataframes
     def _read_tables(self):
-        xl_file = pandas.ExcelFile(self.file)
+        xl_file = ExcelFile(self.file)
         self.sheet_names = xl_file.sheet_names
 
         dataframes = {}
@@ -632,7 +633,7 @@ class Excelerator:
     def to_excel(self, start=False):
         next_file = Excelerator.next_file(self.path, self.filename, self.extension)
         outpath = r'{}\{}.{}'.format(self.path, next_file, self.extension)
-        writer = pandas.ExcelWriter(outpath, engine='xlsxwriter')
+        writer = ExcelWriter(outpath, engine='xlsxwriter')
         for sheetname in self.dataframes:
             self.dataframes[sheetname]['df'].to_excel(writer, sheet_name=sheetname, index=self.dataframes[sheetname]['index'])
         writer.save()
@@ -667,7 +668,7 @@ class ExcelSQL:
                                         value_vars=value_vars,
                                         var_name=period, value_name='kw')
             
-            curves_melted.loc[:, 'kw'] = curves_melted['kw'].apply(pandas.to_numeric, errors='coerce')
+            curves_melted.loc[:, 'kw'] = curves_melted['kw'].apply(to_numeric, errors='coerce')
             curves_melted.drop_duplicates(inplace=True)
 
         else:

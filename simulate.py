@@ -1,6 +1,6 @@
 # creating and managing a fleet over time to optimize servicing costs
 
-import pandas
+from pandas import concat
 from datetime import date
 from dateutil.relativedelta import relativedelta
 from properties import Site
@@ -20,8 +20,8 @@ class Scenario:
 
     # save specifice inputs from a scenario
     def get_inputs(self, details):
-        inputs = pandas.concat([item.get_inputs() for item in [details, self.contract, self.technology, self.tweaks]],
-                                ignore_index=True)
+        inputs = concat([item.get_inputs() for item in [details, self.contract, self.technology, self.tweaks]],
+                         ignore_index=True)
         
         return inputs
 
@@ -172,7 +172,7 @@ class Simulation:
         print('Consolidating results')
 
         # average the run performance
-        performance = pandas.concat(self.site_performance)
+        performance = concat(self.site_performance)
         performance_gb = performance.drop(['site', 'year'], axis='columns').groupby(['date'])
         performance_mean = performance_gb.mean().reset_index()
         performance_max = performance_gb.max().reset_index()
@@ -182,11 +182,11 @@ class Simulation:
                             'min': performance_min}
 
         # average the residual value
-        residuals = pandas.concat(self.residuals)
+        residuals = concat(self.residuals)
         residual_summary = residuals.mean()
         
         # average the run costs
-        costs = pandas.concat(self.costs)
+        costs = concat(self.costs)
         cost_summary = costs[costs['target']].drop('target', axis='columns').groupby(['year', 'action']).mean().reset_index()
       
         # pull the last FRU performance

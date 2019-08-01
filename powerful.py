@@ -1,7 +1,8 @@
 # definitions for power and efficiency curves, power modules and energy servers
 
-import pandas
+from pandas import DataFrame
 from numpy import random as nprandom
+
 from structure import StopWatch
 
 # power curves for a model type
@@ -17,7 +18,7 @@ class PowerCurves:
 
     # calculate probability of each percentile
     def get_probabilities(self, percentiles):
-        probabilities = pandas.DataFrame(data=[0] + percentiles, columns=['percentile'])
+        probabilities = DataFrame(data=[0] + percentiles, columns=['percentile'])
         probabilities.loc[0, 'top'] = 0
 
         for i in range(1, len(probabilities)):

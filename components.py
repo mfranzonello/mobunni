@@ -1,7 +1,8 @@
 # physical field replaceable unit power modules (FRUs) and energy servers (with enclosure cabinets)
 
-import pandas
+from pandas import concat
 from dateutil.relativedelta import relativedelta
+
 from structure import StopWatch
 
 # power module (field replaceable unit)
@@ -232,7 +233,7 @@ class Server:
 
     # estimate the remaining energy in server FRUs
     def get_energy(self, months=None):
-        curves = pandas.concat([enclosure.fru.get_expected_curve() for enclosure in self.enclosures \
+        curves = concat([enclosure.fru.get_expected_curve() for enclosure in self.enclosures \
             if enclosure.is_filled() and not enclosure.fru.is_dead()], axis='columns') 
 
         if months is not None:

@@ -1,6 +1,7 @@
 # tools to record and check if sites are performing to contract specifications
 
-import pandas
+from pandas import DataFrame
+from pandas import date_range
 
 # performance, power and efficiency of a site
 class Monitor:
@@ -8,16 +9,19 @@ class Monitor:
         self.start_ctmo = start_ctmo
         self.start_ceff = start_eff
 
-        date_range = pandas.date_range(start=start_date, periods=contract_length*12, freq='MS')
-        self.performance = pandas.DataFrame(columns=['site', 'date', 'year', 'power', 'CTMO', 'WTMO', 'PTMO', 'fuel', 'Ceff', 'Weff', 'Peff', 'ceiling loss'],
+        contract_date_range = date_range(start=start_date, periods=contract_length*12, freq='MS')
+        self.performance = DataFrame(columns=['site', 'date', 'year',
+                                              'power', 'CTMO', 'WTMO', 'PTMO',
+                                              'fuel', 'Ceff', 'Weff', 'Peff',
+                                              'ceiling loss'],
                                     index=range(contract_length*12),
                                     data=0)
 
         self.performance.loc[:, 'site'] = site_number + 1
-        self.performance.loc[:, 'date'] = date_range
+        self.performance.loc[:, 'date'] = contract_date_range
 
-        self.power = pandas.DataFrame(columns=['date'])
-        self.power.loc[:, 'date'] = date_range
+        self.power = DataFrame(columns=['date'])
+        self.power.loc[:, 'date'] = contract_date_range
         self.efficiency = self.power.copy()
 
     def set_up(self, servers):
@@ -122,7 +126,7 @@ class Inspector:
             replaceable = [[enclosure.fru.is_inefficient(site.shop.thresholds['inefficient']) \
                 if enclosure.is_filled() else True for enclosure in server.enclosures] for server in site.servers]
 
-        replaceable_frus = pandas.DataFrame(data=replaceable)
+        replaceable_frus = DataFrame(data=replaceable)
 
         return replaceable_frus
 

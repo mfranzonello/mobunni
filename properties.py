@@ -1,9 +1,11 @@
 # physical sites were energy servers are installed
 
-import pandas
+from pandas import DataFrame, Series, isnull
+from numpy import nan
 from dateutil.relativedelta import relativedelta
 from math import ceil, floor
 from inspection import Monitor, Inspector
+
 from structure import StopWatch
 
 # group of energy servers
@@ -82,7 +84,7 @@ class Site:
 
     # current power output of all frus on site
     def get_fru_power(self):
-        fru_power = pandas.DataFrame(data=[[enclosure.fru.get_power() if enclosure.is_filled() else 0 \
+        fru_power = DataFrame(data=[[enclosure.fru.get_power() if enclosure.is_filled() else 0 \
             for enclosure in server.enclosures] for server in self.servers])
 
         return fru_power
@@ -101,7 +103,7 @@ class Site:
 
     # estimate the remaining energy in all FRUs
     def get_fru_energy(self):
-        fru_energy = pandas.DataFrame(data=[[enclosure.fru.get_energy() if enclosure.is_filled() else 0 \
+        fru_energy = DataFrame(data=[[enclosure.fru.get_energy() if enclosure.is_filled() else 0 \
             for enclosure in server.enclosures] for server in self.servers])
         
         return fru_energy
@@ -119,12 +121,12 @@ class Site:
 
     # series of server nameplate ratings
     def get_server_nameplates(self):
-        server_nameplates = pandas.Series([server.nameplate for server in self.servers])
+        server_nameplates = Series([server.nameplate for server in self.servers])
         return server_nameplates
 
     # current efficiency of all FRUs on site
     def get_fru_efficiency(self):
-        fru_efficiency = pandas.DataFrame(data=[[enclosure.fru.get_efficiency() if enclosure.is_filled() else 0 \
+        fru_efficiency = DataFrame(data=[[enclosure.fru.get_efficiency() if enclosure.is_filled() else 0 \
             for enclosure in server.enclosures] for server in self.servers])
 
         return fru_efficiency
@@ -200,7 +202,7 @@ class Site:
                 # loop through power modules
                 enclosure = self.shop.create_enclosure(self.number, server, enclosure_number)
                 server.add_enclosure(enclosure)
-                if not (pandas.isnull(server_details.loc[pwm, 'FRU model'])):
+                if not (isnull(server_details.loc[pwm, 'FRU model'])):
                     # install FRU if enclosure not empty
                     fru_model, fru_mark, fru_power, fru_date = server_details.loc[pwm, ['FRU model', 'FRU mark', 'FRU pwr', 'install date']]
                     operating_time = relativedelta(self.get_date(), fru_date)
@@ -351,8 +353,8 @@ class Site:
                     power = enclosure.fru.get_power()
                     efficiency = enclosure.fru.get_efficiency()
                 else:
-                    power = pandas.np.nan
-                    efficiency = pandas.np.nan
+                    power = nan
+                    efficiency = nan
 
                 self.monitor.store_result('power', self.month, 'ES{}|ENC{}'.format(server.number, enclosure.number), power)
                 self.monitor.store_result('efficiency', self.month, 'ES{}|ENC{}'.format(server.number, enclosure.number), efficiency)
