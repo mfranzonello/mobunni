@@ -141,10 +141,12 @@ class FRU:
         
 # cabinet in energy server that can house a FRU
 class Enclosure:  
-    def __init__(self, serial, number):
+    def __init__(self, serial, number, rating=10000):
         self.serial = serial
         self.number = number
         self.fru = None
+
+        self.rating = rating ## maximum amount of power output
 
     # enclosure can hold a FRU
     def is_empty(self):
@@ -170,7 +172,7 @@ class Enclosure:
 
     # get power of FRU if not empty
     def get_power(self):
-        power = self.fru.get_power() if not self.is_empty() else 0
+        power = min(self.rating, self.fru.get_power()) if not self.is_empty() else 0
         return power
 
     # get expected energy of FRU if not empty

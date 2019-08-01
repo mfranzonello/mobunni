@@ -3,7 +3,7 @@
 import pandas
 from dateutil.relativedelta import relativedelta
 from math import ceil, floor
-from inspection import LogBook, Inspector
+from inspection import Monitor, Inspector
 from structure import StopWatch
 
 # group of energy servers
@@ -15,7 +15,7 @@ class Site:
         self.contract = contract
         self.system_size = 0
 
-        self.log_book = LogBook(self.number, self.contract.start_date, self.contract.length)
+        self.monitor = Monitor(self.number, self.contract.start_date, self.contract.length)
 
         self.limits = contract.limits
 
@@ -108,7 +108,7 @@ class Site:
 
     # caculate energy already produced at all servers
     def get_energy_produced(self):
-        ctmo = self.log_book.get_result('performance', 'CTMO', self.month - 1) if self.month > 0 else self.log_book.start_ctmo
+        ctmo = self.monitor.get_result('performance', 'CTMO', self.month - 1) if self.month > 0 else self.monitor.start_ctmo
         site_energy = ctmo * self.month * self.system_size 
         return site_energy
 
@@ -178,7 +178,7 @@ class Site:
             self.populate_new(new_servers)
 
         # prepare log book storage
-        self.log_book.set_up(self.servers)
+        self.monitor.set_up(self.servers)
 
     # add existing FRUs to site
     def populate_existing(self, existing_servers):
@@ -292,43 +292,43 @@ class Site:
         if self.limits['window']:
             window_start = max(0, self.month - self.limits['window'])
 
-        self.log_book.store_result('performance', 'year', self.month, self.get_year())
+        self.monitor.store_result('performance', 'year', self.month, self.get_year())
 
         power = self.get_site_power()
-        self.log_book.store_result('performance', 'power', self.month, power)
+        self.monitor.store_result('performance', 'power', self.month, power)
 
         ctmo_adj = self.contract.start_month/(self.month+1)
-        ctmo = (self.log_book.get_result('performance', 'power', self.month, function='mean') / self.system_size)*(1-ctmo_adj) + \
-            (self.log_book.start_ctmo)*ctmo_adj
-        self.log_book.store_result('performance', 'CTMO', self.month, ctmo)
+        ctmo = (self.monitor.get_result('performance', 'power', self.month, function='mean') / self.system_size)*(1-ctmo_adj) + \
+            (self.monitor.start_ctmo)*ctmo_adj
+        self.monitor.store_result('performance', 'CTMO', self.month, ctmo)
 
         if self.limits['window']:
-            wtmo = self.log_book.get_result('performance', 'power', self.month, start_month=window_start, function='mean') / self.system_size
-            self.log_book.store_result('performance', 'WTMO', self.month, wtmo)
+            wtmo = self.monitor.get_result('performance', 'power', self.month, start_month=window_start, function='mean') / self.system_size
+            self.monitor.store_result('performance', 'WTMO', self.month, wtmo)
         else:
             wtmo = None
 
         ptmo = power / self.system_size
-        self.log_book.store_result('performance', 'PTMO', self.month, ptmo)
+        self.monitor.store_result('performance', 'PTMO', self.month, ptmo)
         
         efficiency = self.get_site_efficiency()
-        fuel = self.log_book.get_result('performance', 'power', self.month) / efficiency
-        self.log_book.store_result('performance', 'fuel', self.month, fuel)
+        fuel = self.monitor.get_result('performance', 'power', self.month) / efficiency
+        self.monitor.store_result('performance', 'fuel', self.month, fuel)
 
-        ceff = self.log_book.get_result('performance', 'power', self.month, sum) / self.log_book.get_result('performance', 'fuel', self.month, sum)
-        self.log_book.store_result('performance', 'Ceff', self.month, ceff)
+        ceff = self.monitor.get_result('performance', 'power', self.month, sum) / self.monitor.get_result('performance', 'fuel', self.month, sum)
+        self.monitor.store_result('performance', 'Ceff', self.month, ceff)
 
         if self.limits['window']:
-            weff = self.log_book.get_result('performance', 'power', self.month, start_month=window_start, function='sum') \
-                / self.log_book.get_result('performance', 'fuel', self.month, start_month=window_start, function='sum')
-            self.log_book.store_result('performance', 'Weff', self.month, weff)
+            weff = self.monitor.get_result('performance', 'power', self.month, start_month=window_start, function='sum') \
+                / self.monitor.get_result('performance', 'fuel', self.month, start_month=window_start, function='sum')
+            self.monitor.store_result('performance', 'Weff', self.month, weff)
         else:
             weff = None
 
         peff = efficiency
-        self.log_book.store_result('performance', 'Peff', self.month, peff)
+        self.monitor.store_result('performance', 'Peff', self.month, peff)
         
-        self.log_book.store_result('performance', 'ceiling loss', self.month, self.get_site_ceiling_loss())
+        self.monitor.store_result('performance', 'ceiling loss', self.month, self.get_site_ceiling_loss())
 
         pairs = [[ctmo, self.limits['CTMO']], [wtmo, self.limits['WTMO']], [ptmo, self.limits['PTMO']],
                  [ceff, self.limits['Ceff']], [weff, self.limits['Weff']], [peff, self.limits['Peff']]]
@@ -354,11 +354,11 @@ class Site:
                     power = pandas.np.nan
                     efficiency = pandas.np.nan
 
-                self.log_book.store_result('power', self.month, 'ES{}|ENC{}'.format(server.number, enclosure.number), power)
-                self.log_book.store_result('efficiency', self.month, 'ES{}|ENC{}'.format(server.number, enclosure.number), efficiency)
+                self.monitor.store_result('power', self.month, 'ES{}|ENC{}'.format(server.number, enclosure.number), power)
+                self.monitor.store_result('efficiency', self.month, 'ES{}|ENC{}'.format(server.number, enclosure.number), efficiency)
                 
-            self.log_book.store_result('power', self.month, 'ES{}|='.format(server.number), server.get_power())
-            self.log_book.store_result('power', self.month, 'ES{}|-'.format(server.number), server.get_ceiling_loss())
+            self.monitor.store_result('power', self.month, 'ES{}|='.format(server.number), server.get_power())
+            self.monitor.store_result('power', self.month, 'ES{}|-'.format(server.number), server.get_ceiling_loss())
 
     # use inspector to check site
     def check_site(self):

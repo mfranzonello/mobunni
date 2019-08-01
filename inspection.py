@@ -2,8 +2,8 @@
 
 import pandas
 
-# performance, power and efficiency of a Site
-class LogBook:
+# performance, power and efficiency of a site
+class Monitor:
     def __init__(self, site_number, start_date, contract_length, start_ctmo=1.0, start_eff=1.0):
         self.start_ctmo = start_ctmo
         self.start_ceff = start_eff
@@ -55,7 +55,7 @@ class LogBook:
                    'efficiency': self.efficiency}[table].copy()
         return results
 
-# methods to see if a Site is performing according to contract
+# methods to see if a site is performing according to contract
 class Inspector:
     # see if swapping FRUs minimizes ceiling loss
     def is_balanceable(site):

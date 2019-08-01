@@ -9,46 +9,126 @@ from components import FRU, Enclosure, Server
 from structure import StopWatch
 
 # template for new modules and servers
-##class Templates:
-##    def __init__(self, sql_db):
-##        self.sql_db = sql_db
-##        self.servers = {}
-##        self.modules = {}
+class Templates:
+    def __init__(self, sql_db):
+        self.sql_db = sql_db
+        self.servers = {}
+        self.modules = {}
 
-##    def find_server(self, model):
-##        server = None
-##        return server
+    def find_server(self, model):
+        server = None
+        return server
 
-##    def ghost_server(self, model):
-##        pass
+    def ghost_server(self, model):
+        pass
 
-##    def find_module(self, model, mark):
-##        if (model, mark) in self.modules:
-##            module = self.modules[(model, mark)]
-##        else:
-##            module = self.ghost_module(model, mark)
-##        return module
+    def find_module(self, model, mark):
+        if (model, mark) in self.modules:
+            module = self.modules[(model, mark)]
+        else:
+            module = self.ghost_module(model, mark)
+        return module
 
-##    def ghost_module(self, model, mark):
-##        serial = None # blank serial
-##        install_date = None # blank date
+    def ghost_module(self, model, mark):
+        serial = None # blank serial
+        install_date = None # blank date
 
-##        power_curves = PowerCurves(self.sql_db.get_power_curves(model, mark))
-##        efficiency_curve = self.sql_db.get_efficiency_curve(model, mark)
+        power_curves = PowerCurves(self.sql_db.get_power_curves(model, mark))
+        efficiency_curve = self.sql_db.get_efficiency_curve(model, mark)
 
-##        base = mark ##
-##        fru = FRU(serial, model, base, mark, power_curves, efficiency_curve, install_date, current_date=install_date)
+        base = mark ##
+        fru = FRU(serial, model, base, mark, power_curves, efficiency_curve, install_date, current_date=install_date)
 
-##        # add FRU template
-##        self.ghosts[(model, mark)] = fru
-##        pass
+        # add FRU template
+        self.modules[(model, mark)] = fru
+
+        return fru
+
+# record of transactions and results across shop and fleet
+class LogBook:
+    def __init__(self):
+        self.transactions = pandas.DataFrame(columns=['date', 'serial', 'model', 'mark', 'power', 'efficiency', 'action',
+                                                      'direction', 'site', 'server', 'enclosure', 'service cost'])
+        self.residuals = pandas.Series()
+        self.performance = {'site': {}, 'fru': {}}
+
+    # record log of transactions
+    def record_transaction(self, date, serial, model, mark, power, efficiency,
+                           action, direction, site_number, server_number, enclosure_number, cost):
+        self.transactions.loc[len(self.transactions), :] = [date, serial, model, mark, power, efficiency,
+                                                            action, direction, site_number+1, server_number+1, enclosure_number+1, cost]
+
+    # store power and efficiency
+    def record_performance(self, table, site_number, *args):
+        if table == 'site':
+            [performance] = args
+            self.performance['site'][site_number] = performance
+
+        elif table == 'fru':
+            power, efficiency = args
+
+            power.insert(0, 'site', site_number)
+            efficiency.insert(0, 'site', site_number)
+            self.performance['fru'][site_number] = {'power': power, 'efficiency': efficiency}
+
+    # store residual power of FRU at a site
+    def record_residuals(self, site_number, fru):
+        if site_number not in self.residuals:
+            self.residuals.loc[site_number] = 0
+        self.residuals.loc[site_number] += fru.get_power()
+
+    # combine transactions by year, site and action
+    def get_transactions(self, site_number=None, last_date=None):
+        transactions = self.transactions.copy()
+
+        if site_number is not None:
+            filter = (transactions['site'] == site_number+1)
+
+            if last_date is not None:
+                filter &= (transactions['date'] == last_date)
+            transactions = transactions[filter]
+
+        return transactions
+
+    def get_performance(self, table, site_number):
+        performance = self.performance[table][site_number]
+        return performance
+
+    # return residual value
+    def summarize_residuals(self, site_number):
+        residuals = pandas.DataFrame(data=self.residuals[self.residuals.index==site_number], columns=['residual'])
+        return residuals
+
+    # return series of value if site is target site
+    def identify_target(self, sites, site_number, site_col='site', site_adder=True, target_col='target'):
+        target_series = sites[site_col] == (site_number + site_adder)
+        target_identified = pandas.concat([sites, target_series.rename(target_col)], axis='columns')
+
+        return target_identified
+
+    # combine transactions by year, site and action
+    def summarize_transactions(self, site_number):
+        transactions_yearly = self.get_transactions()
+        transactions_yearly.insert(0, 'year', pandas.to_datetime(transactions_yearly['date']).dt.year)
+        transactions_gb = transactions_yearly[['year', 'site', 'action', 'service cost']].groupby(['year', 'site', 'action'])
+        
+        transactions_sum = transactions_gb.sum()[['service cost']]
+        transactions_count = transactions_gb.count()[['service cost']].rename(columns={'service cost': 'count'})
+        
+        transactions_summarized = pandas.concat([transactions_count, transactions_sum], axis='columns').reset_index()
+
+        transactions = self.identify_target(transactions_summarized, site_number)
+
+        return transactions
 
 # warehouse to store, repair and deploy old FRUs and create new FRUs
 class Shop:
     def __init__(self, sql_db, install_date, tweaks,
                  allowed_fru_models=None):
         self.sql_db = sql_db
+
         self.power_modules = PowerModules(sql_db)
+        self.templates = Templates(sql_db)
 
         self.thresholds = self.sql_db.get_thresholds()
 
@@ -61,9 +141,6 @@ class Shop:
         self.deployable = []
         self.junk = []
         self.salvage = []
-        self.residuals = pandas.Series()
-
-        self.ghosts = {} # templates of FRUs to copy
 
         self.date = install_date
 
@@ -71,14 +148,15 @@ class Shop:
 
         self.next_serial = {'ES': 0, 'PWM': 0, 'ENC': 0}
 
-        self.transactions = pandas.DataFrame(columns=['date', 'serial', 'model', 'mark', 'power', 'efficiency', 'action',
-                                                      'direction', 'site', 'server', 'enclosure', 'service cost'])
+        self.log_book = LogBook()
+        ##self.transactions = pandas.DataFrame(columns=['date', 'serial', 'model', 'mark', 'power', 'efficiency', 'action',
+        ##                                              'direction', 'site', 'server', 'enclosure', 'service cost'])
 
     # record log of transactions
     def transact(self, serial, model, mark, power, efficiency,
                  action, direction, site_number, server_number, enclosure_number, cost):
-        self.transactions.loc[len(self.transactions), :] = [self.date, serial, model, mark, power, efficiency,
-                                                            action, direction, site_number+1, server_number+1, enclosure_number+1, cost]
+        self.log_book.record_transaction(self.date, serial, model, mark, power, efficiency,
+                                         action, direction, site_number, server_number, enclosure_number, cost)
 
     # return serial number for component tracking
     def get_serial(self, component):
@@ -91,30 +169,13 @@ class Shop:
         cost = self.sql_db.get_cost(action, self.date, model, mark, operating_time, power)
         return cost
 
-    # create a new FRU or replicate an existing FRU
-    def ghost_fru(self, model, mark, fit=None):
-        serial = '_' # blank serial
-        install_date = date(1985, 4, 25) ## install date should be initially available date
-
-        power_curves = PowerCurves(self.sql_db.get_power_curves(model, mark))
-        efficiency_curve = self.sql_db.get_efficiency_curve(model, mark)
-
-        base = mark ##
-        fru = FRU(serial, model, base, mark, power_curves, efficiency_curve, install_date, current_date=install_date, fit=fit)
-
-        # add FRU template
-        self.ghosts[(model, mark)] = fru
-
     # copy a FRU from a template
     def create_fru(self, model, mark, install_date, site_number, server_number, enclosure_number, initial=False, fit=None):
         serial = self.get_serial('PWM')
         
         # check if template already created to reduce calls to DB
-        if (model, mark) not in self.ghosts:
-            self.ghost_fru(model, mark, fit=None)
-            
-        fru = self.ghosts[(model, mark)].copy(serial, install_date, current_date=install_date, fit=fit)
-        
+        fru = self.templates.find_module(model, mark).copy(serial, install_date, current_date=install_date, fit=fit)
+
         # get costs
         cost_action = 'initialize fru' if initial else 'create fru'
         cost = self.get_cost(cost_action, model=model, mark=mark)
@@ -157,9 +218,7 @@ class Shop:
 
         if final:
             # FRU is finished with site and has residual value
-            if site_number not in self.residuals:
-                self.residuals.loc[site_number] = 0
-            self.residuals.loc[site_number] += fru.get_power()
+            self.log_book.record_residuals(site_number, fru)
 
         return
 
@@ -350,7 +409,7 @@ class Shop:
         
         server = Server(serial, server_number, server_model['model'], server_model['model_number'], server_model['nameplate'])
 
-        self.transact(server.serial, server.model, 'SERVER', server.nameplate, 0,
+        self.transact(server.serial, server.model, server.model_number, server.nameplate, 0,
                       'installed ES', 'at', site_number, server.number, -1, cost)
 
         enclosures = self.create_enclosures(site_number, server, enclosure_count=server_model['enclosures'], plus_one_count=server_model['plus_one'])     
@@ -364,7 +423,7 @@ class Shop:
     def upgrade_server(self, server, site_number, nameplate):
         server.upgrade_nameplate(nameplate)
         cost = self.get_cost('upgrade server', model=server.model, power=nameplate - server.nameplate)
-        self.transact(server.serial, server.model, 'SERVER', nameplate, 0,
+        self.transact(server.serial, server.model, server.model_number, nameplate, 0,
                      'upgraded ES', 'at', site_number, server.number, -1, cost)
         pass
     
@@ -423,8 +482,6 @@ class Fleet:
 
         self.sites = []
         self.shop = None
-        self.site_performance = {}
-        self.fru_performance = {}
 
         self.system_sizes = system_sizes
         self.system_dates = system_dates
@@ -436,6 +493,7 @@ class Fleet:
     # pick sizes based on distribution for sites other than target
     def set_up_install_sizes(self):
         self.install_sizes = self.system_sizes.sample(self.total_sites - 1, replace=True).to_list()
+        return
         
     # pick months based on distribution for site installation
     def set_up_install_months(self):
@@ -463,10 +521,12 @@ class Fleet:
     # add shop to fleet
     def add_shop(self, shop):
         self.shop = shop
+        return
 
     # add site to fleet    
     def add_site(self, site):
         self.sites.append(site)
+        return
 
     # remove site from fleet
     def remove_site(self, site):
@@ -477,59 +537,30 @@ class Fleet:
 
     # store site power and efficiency
     def store_site_performance(self, site):
-        self.site_performance[site.number] = site.log_book.get_results('performance')
+        self.shop.log_book.record_performance('site', site.number, site.monitor.get_results('performance'))
+        return
 
     # store FRU power and efficiency
     def store_fru_performance(self, site):
-        power = site.log_book.get_results('power')
-        power.insert(0, 'site', site.number)
-        efficiency = site.log_book.get_results('efficiency')
-        efficiency.insert(0, 'site', site.number)
-        self.fru_performance[site.number] = {'power': power, 'efficiency': efficiency}
+        self.shop.log_book.record_performance('fru', site.number, site.monitor.get_results('power'), site.monitor.get_results('efficiency'))
+        return
 
     # get transaction log
     def get_transactions(self, site_number=None, last_date=None):
         if self.shop is not None:
-            transactions = self.shop.transactions.copy()
-
-            if site_number is not None:
-                transactions = transactions[\
-                    (transactions['site'] == site_number+1) & \
-                    (transactions['date'] == last_date)]
-
+            transactions = self.shop.log_book.get_transactions(site_number, last_date)
             return transactions
-        return
-
-    # return series of value if site is target site
-    def identify_target(self, sites, site_col='site', site_adder=True, site_number='target', target_col='target'):
-        if site_number == 'target':
-            site_number = self.target_site
-        
-
-        target_series = sites[site_col] == (site_number + site_adder)
-        target_identified = pandas.concat([sites, target_series.rename(target_col)], axis='columns')
-
-        return target_identified
 
     # combine transactions by year, site and action
     def summarize_transactions(self, site_number='target'):
         if site_number == 'target':
             site_number = self.target_site
 
-        transactions_yearly = self.get_transactions()
-        transactions_yearly.insert(0, 'year', pandas.to_datetime(transactions_yearly['date']).dt.year)
-        transactions_gb = transactions_yearly[['year', 'site', 'action', 'service cost']].groupby(['year', 'site', 'action'])
-        
-        transactions_sum = transactions_gb.sum()[['service cost']]
-        transactions_count = transactions_gb.count()[['service cost']].rename(columns={'service cost': 'count'})
-        
-        transactions_summarized = pandas.concat([transactions_count, transactions_sum], axis='columns').reset_index()
-
-        transactions = self.identify_target(transactions_summarized)
+        transactions = self.shop.log_book.summarize_transactions(site_number)
 
         return transactions
 
-    # return power and efficiency of all sites
+    # return power and efficiency of all a site
     def summarize_site_performance(self, site_number='target'):
         if site_number == 'target':
             site_number = self.target_site
@@ -538,10 +569,11 @@ class Fleet:
             # add TMO and eff of any site that hasn't expired
             self.store_site_performance(site)
 
-        site_performance = self.site_performance[site_number]
+        site_performance = self.shop.log_book.get_performance('site', site_number)
 
         return site_performance
 
+    # return power and efficiency of all FRUs at a site
     def get_fru_performance(self, site_number='target'):
         if site_number == 'target':
             site_number = self.target_site
@@ -550,15 +582,15 @@ class Fleet:
             # add FRU perfromance of any site that hasn't expired
             self.store_fru_performance(site)
        
-        fru_performance = self.fru_performance[site_number]
+        fru_performance = self.shop.log_book.get_performance('fru', site_number)
 
         return fru_performance
 
     # return residual value
     def summarize_residuals(self, site_number='target'):
-        if site_number == 'target':
-            site_number = self.target_site
-
         if self.shop is not None:
-            residuals = pandas.DataFrame(data=self.shop.residuals[self.shop.residuals.index==site_number], columns=['residual'])
+            if site_number == 'target':
+                site_number = self.target_site
+
+            residuals = self.shop.log_book.summarize_residuals(site_number)
             return residuals
