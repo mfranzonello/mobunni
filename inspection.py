@@ -2,6 +2,8 @@
 
 from pandas import DataFrame, date_range
 
+from debugging import StopWatch
+
 # performance, power and efficiency of a site
 class Monitor:
     def __init__(self, site_number, start_date, contract_length, start_ctmo=1.0, start_eff=1.0):
@@ -147,7 +149,7 @@ class Inspector:
             # no empty enclosures
 
             # ignore FRUs that are too new to be replaced
-            replaceable_frus = site.get_replaceable_frus(by)
+            replaceable_frus = Inspector.get_replaceable_frus(site, by)
 
             if by == 'power':
                 # for PTMO failure
@@ -206,7 +208,7 @@ class Inspector:
                 StopWatch.timer('get worst power FRU')
 
                 StopWatch.timer('get worst efficiency FRU')
-                server_e, enclosure_e = Inpsector.get_worst_fru(site, 'efficiency')
+                server_e, enclosure_e = Inspector.get_worst_fru(site, 'efficiency')
                 StopWatch.timer('get worst efficiency FRU')
 
             else:
@@ -257,7 +259,7 @@ class Inspector:
             additional_energy = (site.limits['CTMO'] + site.shop.thresholds['ctmo pad']) * site.contract.length * 12 * site.system_size \
                 - (site.get_energy_produced() + site.get_energy_remaining())
             
-            server_d, enclosure_d = site.get_worst_fru('energy')
+            server_d, enclosure_d = Inspector.get_worst_fru(site, 'energy')
             energy_needed = additional_energy - site.servers[server_d].enclosures[enclosure_d].get_energy(months=site.get_months_remaining())
             
             StopWatch.timer('get best fit FRU [early deploy]')
@@ -364,6 +366,6 @@ class Inspector:
     # look at TMO and efficiency and find next worst FRU
     def check_worst_fru(site):
         commitments, fails = site.store_performance()
-        server_p, enclosure_p = site.get_worst_fru('power')
-        server_e, enclosure_e = site.get_worst_fru('efficiency')
+        server_p, enclosure_p = Inspector.get_worst_fru(site, 'power')
+        server_e, enclosure_e = Inspector.get_worst_fru(site, 'efficiency')
         return commitments, fails, server_p, enclosure_p, server_e, enclosure_e

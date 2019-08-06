@@ -40,6 +40,7 @@ def get_scenario(excel_int, scenario_number):
 
     commitments = Commitments(length=contract_length, target_size=target_size, start_date=start_date,
                               start_month=start_month, non_replace=non_replace, limits=limits)
+
     technology = Technology(new_servers=new_servers, existing_servers=existing_servers, allowed_fru_models=allowed_fru_models)
     tweaks = Tweaks(repair=repair, junk_level=junk_level, best=best)
 

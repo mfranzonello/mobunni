@@ -37,7 +37,7 @@ class Commitments(Group):
         self.start_date = kwargs.get('start_date', date(date.today().year, 1, 1))
         self.start_month = kwargs.get('start_month', 0)
         self.non_replace = kwargs.get('non_replace')
-        self.limits = {value: kwargs.get(value) for value in Commitments.limits_values}
+        self.limits = {value: kwargs['limits'].get(value) for value in Commitments.limits_values} if 'limits' in kwargs else None
         self.start_ctmo = kwargs.get('start_ctmo', 1.0) ##
 
         self.number = None
