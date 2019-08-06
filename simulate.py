@@ -1,26 +1,28 @@
 # creating and managing a fleet over time to optimize servicing costs
 
-from pandas import concat
 from datetime import date
 from dateutil.relativedelta import relativedelta
+
+from pandas import concat
+
 from properties import Site
 from operations import Shop, Fleet
-
-from structure import StopWatch
+from legal import Portfolio
+from debugging import StopWatch
 
 # details specific to scenario
 class Scenario:
-    def __init__(self, number, name, contract, technology, tweaks):
+    def __init__(self, number, name, commitments, technology, tweaks):
         self.number = number
         self.name = name
 
-        self.contract = contract
+        self.commitments = commitments
         self.technology = technology
         self.tweaks = tweaks
 
     # save specifice inputs from a scenario
     def get_inputs(self, details):
-        inputs = concat([item.get_inputs() for item in [details, self.contract, self.technology, self.tweaks]],
+        inputs = concat([item.get_inputs() for item in [details, self.commitments, self.technology, self.tweaks]],
                          ignore_index=True)
         
         return inputs
@@ -40,21 +42,23 @@ class Simulation:
                 
         self.tweaks = scenario.tweaks
         self.inputs = scenario.get_inputs(self.details)
+
+        self.portfolio = Portfolio()
        
     # create operations and cost objects
     def set_up_fleet(self):
         system_sizes, system_dates = self.sql_db.get_system_sizes()
         min_date = self.sql_db.get_earliest_date()
-        fleet = Fleet(self.scenario.contract.target_size, self.details.n_sites, self.details.n_years,
-                      system_sizes, system_dates, self.scenario.contract.start_date, min_date)
+        fleet = Fleet(self.scenario.commitments.target_size, self.details.n_sites, self.details.n_years,
+                      system_sizes, system_dates, self.scenario.commitments.start_date, min_date)
 
-        shop = Shop(self.sql_db, self.scenario.contract.start_date, tweaks=self.tweaks,
+        shop = Shop(self.sql_db, self.scenario.commitments.start_date, tweaks=self.tweaks,
                     allowed_fru_models=self.scenario.technology.allowed_fru_models)
         fleet.add_shop(shop)
 
         # adjust start date to account for sites being installed before the target site
         ##print('TARGET MONTH: {}'.format(fleet.target_month))
-        self.scenario.contract.start_date -= relativedelta(months=fleet.target_month)
+        self.scenario.commitments.start_date -= relativedelta(months=fleet.target_month)
 
         return fleet, shop
        
@@ -67,17 +71,19 @@ class Simulation:
         site_size = fleet.install_sizes[site_number]
         print(' | {}kW'.format(site_size))
 
-        site_start_date = self.scenario.contract.start_date + relativedelta(months=month)
+        site_start_date = self.scenario.commitments.start_date + relativedelta(months=month)
 
         ## update
-        site_limits = self.scenario.contract.limits
-        site_start_month = self.scenario.contract.start_month ##
+        site_limits = self.scenario.commitments.limits
+        site_start_month = self.scenario.commitments.start_month ##
+        site_deal = 'CapEx' # 'PPA'
+        site_length = self.scenario.commitments.length
+        site_non_replace = self.scenario.commitments.non_replace
+        site_start_ctmo = self.scenario.commitments.start_ctmo
 
         # update contract
-        contract = self.scenario.contract.change_terms(target_size=site_size,
-                                                       start_date=site_start_date,
-                                                       limits=site_limits)
-        
+        contract = self.portfolio.generate_contract(site_deal, site_length, site_size, site_start_date, site_start_month,
+                                                    site_non_replace, site_limits, start_ctmo=site_start_ctmo)
         site = Site(site_number, fleet.shop, contract)
 
         if (site_number == fleet.target_site) and self.scenario.technology.has_existing_servers():
@@ -138,7 +144,7 @@ class Simulation:
             fleet, shop = self.set_up_fleet()
 
             # run through all contracts
-            for month in range(self.scenario.contract.length*12 + fleet.target_month + 1):
+            for month in range(self.scenario.commitments.length*12 + fleet.target_month + 1):
 
                 # install site at sampled months
                 for site_n in range(fleet.get_install_count(month)):

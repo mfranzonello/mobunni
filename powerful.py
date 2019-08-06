@@ -3,7 +3,7 @@
 from pandas import DataFrame
 from numpy import random as nprandom
 
-from structure import StopWatch
+from debugging import StopWatch
 
 # power curves for a model type
 class PowerCurves:

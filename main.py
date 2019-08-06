@@ -1,8 +1,10 @@
 # main script to read inputs, set up structure, run simulation and print results
 
 from structure import Project, SQLDB, ExcelInt, Excelerator
-from groups import Details, Contract, Technology, Tweaks
+from groups import Details, Commitments, Technology, Tweaks
 from simulate import Scenario, Simulation
+
+from debugging import StopWatch
 
 # inputs
 structure_db = 'bpm.db'
@@ -36,13 +38,13 @@ def get_scenario(excel_int, scenario_number):
         non_replace, repair, junk_level, best, \
         new_servers, existing_servers, allowed_fru_models = excel_int.get_scenario(scenario_number)
 
-    contract = Contract(length=contract_length, target_size=target_size, start_date=start_date,
-                        start_month=start_month, non_replace=non_replace, limits=limits)
+    commitments = Commitments(length=contract_length, target_size=target_size, start_date=start_date,
+                              start_month=start_month, non_replace=non_replace, limits=limits)
     technology = Technology(new_servers=new_servers, existing_servers=existing_servers, allowed_fru_models=allowed_fru_models)
     tweaks = Tweaks(repair=repair, junk_level=junk_level, best=best)
 
     scenario = Scenario(scenario_number, scenario_name,
-                        contract=contract, technology=technology, tweaks=tweaks)
+                        commitments=commitments, technology=technology, tweaks=tweaks)
     return scenario
 
 # run simulation
@@ -78,3 +80,4 @@ project, excel_int = get_project()
 sql_db = get_structure(structure_db)
 details = get_details(excel_int)
 run_scenarios(project, excel_int, details, sql_db)
+StopWatch.show_results()

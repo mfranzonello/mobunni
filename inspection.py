@@ -1,45 +1,48 @@
 # tools to record and check if sites are performing to contract specifications
 
-from pandas import DataFrame
-from pandas import date_range
+from pandas import DataFrame, date_range
 
 # performance, power and efficiency of a site
 class Monitor:
     def __init__(self, site_number, start_date, contract_length, start_ctmo=1.0, start_eff=1.0):
-        self.start_ctmo = start_ctmo
-        self.start_ceff = start_eff
+        self._starting_cumulative = {'tmo': start_ctmo,
+                                     'efficiency': start_eff}
 
         contract_date_range = date_range(start=start_date, periods=contract_length*12, freq='MS')
-        self.performance = DataFrame(columns=['site', 'date', 'year',
+        self._performance = DataFrame(columns=['site', 'date', 'year',
                                               'power', 'CTMO', 'WTMO', 'PTMO',
                                               'fuel', 'Ceff', 'Weff', 'Peff',
                                               'ceiling loss'],
                                     index=range(contract_length*12),
                                     data=0)
 
-        self.performance.loc[:, 'site'] = site_number + 1
-        self.performance.loc[:, 'date'] = contract_date_range
+        self._performance.loc[:, 'site'] = site_number + 1
+        self._performance.loc[:, 'date'] = contract_date_range
 
-        self.power = DataFrame(columns=['date'])
-        self.power.loc[:, 'date'] = contract_date_range
-        self.efficiency = self.power.copy()
+        self._power = DataFrame(columns=['date'])
+        self._power.loc[:, 'date'] = contract_date_range
+        self._efficiency = self._power.copy()
 
     def set_up(self, servers):
         reindex = ['date'] + ['ES{}|{}'.format(s_n, e_n) \
             for s_n in range(len(servers)) \
             for e_n in ['ENC{}'.format(f_n) for f_n in range(len(servers[s_n].enclosures))] + ['=', '-']]
-        self.power = self.power.reindex(reindex, axis='columns')
-        self.efficiency = self.efficiency.reindex(reindex, axis='columns')
+        self._power = self._power.reindex(reindex, axis='columns')
+        self._efficiency = self._efficiency.reindex(reindex, axis='columns')
+
+    def get_starting_cumulative(self, table):
+        value = self._starting_cumulative[table]
+        return value
 
     def store_result(self, table, column, month, value):
-        {'performance': self.performance,
-         'power': self.power,
-         'efficiency': self.efficiency}[table].loc[month, column] = value
+        {'performance': self._performance,
+         'power': self._power,
+         'efficiency': self._efficiency}[table].loc[month, column] = value
 
     def get_result(self, table, column, month, start_month=0, function=None):
-        df = {'performance': self.performance,
-              'power': self.power,
-              'efficiency': self.efficiency}[table]
+        df = {'performance': self._performance,
+              'power': self._power,
+              'efficiency': self._efficiency}[table]
         
         if function is None:
             result = df.loc[month, column]
@@ -54,9 +57,9 @@ class Monitor:
         return result
 
     def get_results(self, table):
-        results = {'performance': self.performance,
-                   'power': self.power,
-                   'efficiency': self.efficiency}[table].copy()
+        results = {'performance': self._performance,
+                   'power': self._power,
+                   'efficiency': self._efficiency}[table].copy()
         return results
 
 # methods to see if a site is performing according to contract
@@ -181,7 +184,8 @@ class Inspector:
         commitments, fails = site.store_performance()
 
         # check if FRUs can be replaced this year
-        if site.contract.is_replaceable_year(site.get_year()) and (site.get_years_remaining() > site.shop.thresholds['no deploy']):
+        if site.contract.is_replaceable_year(site.get_year()):
+            early_deploys = (site.get_years_remaining() > site.shop.thresholds['no deploy']) ###
             
             # check if FRUs need to be repaired
             if site.shop.repair:

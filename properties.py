@@ -1,12 +1,13 @@
 # physical sites were energy servers are installed
 
-from pandas import DataFrame, Series, isnull
-from numpy import nan
 from dateutil.relativedelta import relativedelta
 from math import ceil, floor
-from inspection import Monitor, Inspector
 
-from structure import StopWatch
+from pandas import DataFrame, Series, isnull
+from numpy import nan
+
+from inspection import Monitor, Inspector
+from debugging import StopWatch
 
 # group of energy servers
 class Site:    
@@ -135,11 +136,16 @@ class Site:
     def get_site_efficiency(self):
         # find potential power output of FRUs at each server
         fru_power = self.get_fru_power()
+        site_power = self.get_fru_power().sum().sum()
         
         # find weighted average efficiency
-        fru_efficiency = self.get_fru_efficiency()
+        if (site_power == 0):
+            # all FRUs are dead or removed so there is no efficiency
+            site_efficiency = 0
 
-        site_efficiency = (fru_power * fru_efficiency).sum().sum() / fru_power.sum().sum()
+        else:
+            fru_efficiency = self.get_fru_efficiency()
+            site_efficiency = (fru_power * fru_efficiency).sum().sum() / site_power
 
         return site_efficiency
 
@@ -301,7 +307,7 @@ class Site:
 
         ctmo_adj = self.contract.start_month/(self.month+1)
         ctmo = (self.monitor.get_result('performance', 'power', self.month, function='mean') / self.system_size)*(1-ctmo_adj) + \
-            (self.monitor.start_ctmo)*ctmo_adj
+            (self.monitor.get_starting_cumulative('tmo'))*ctmo_adj
         self.monitor.store_result('performance', 'CTMO', self.month, ctmo)
 
         if self.limits['window']:
@@ -314,7 +320,7 @@ class Site:
         self.monitor.store_result('performance', 'PTMO', self.month, ptmo)
         
         efficiency = self.get_site_efficiency()
-        fuel = self.monitor.get_result('performance', 'power', self.month) / efficiency
+        fuel = self.monitor.get_result('performance', 'power', self.month) / efficiency if efficiency != 0 else 0
         self.monitor.store_result('performance', 'fuel', self.month, fuel)
 
         ceff = self.monitor.get_result('performance', 'power', self.month, sum) / self.monitor.get_result('performance', 'fuel', self.month, sum)

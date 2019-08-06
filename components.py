@@ -3,7 +3,7 @@
 from pandas import concat
 from dateutil.relativedelta import relativedelta
 
-from structure import StopWatch
+from debugging import StopWatch
 
 # power module (field replaceable unit)
 class FRU:

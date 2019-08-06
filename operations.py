@@ -1,14 +1,15 @@
 # central warehouse for creating, storing and deploying components and fleet to manage all sites
 
-from pandas import DataFrame, Series, concat, to_datetime, isna
-from numpy import nan
 from dateutil.relativedelta import relativedelta
 from datetime import date
 from random import randrange
+
+from pandas import DataFrame, Series, concat, to_datetime, isna
+from numpy import nan
+
 from powerful import PowerCurves, PowerModules
 from components import FRU, Enclosure, Server
-
-from structure import StopWatch
+from debugging import StopWatch
 
 # template for new modules and servers
 class Templates:
