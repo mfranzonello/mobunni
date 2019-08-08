@@ -52,7 +52,6 @@ class LogBook:
     def __init__(self):
         self.transactions = DataFrame(columns=['date', 'serial', 'model', 'mark', 'power', 'efficiency', 'action',
                                                       'direction', 'site', 'server', 'enclosure', 'service cost'])
-        self.residuals = Series()
         self.performance = {'site': {}, 'fru': {}}
 
     # record log of transactions
@@ -74,12 +73,6 @@ class LogBook:
             efficiency.insert(0, 'site', site_number)
             self.performance['fru'][site_number] = {'power': power, 'efficiency': efficiency}
 
-    # store residual power of FRU at a site
-    def record_residuals(self, site_number, fru):
-        if site_number not in self.residuals:
-            self.residuals.loc[site_number] = 0
-        self.residuals.loc[site_number] += fru.get_power()
-
     # combine transactions by year, site and action
     def get_transactions(self, site_number=None, last_date=None):
         transactions = self.transactions.copy()
@@ -96,11 +89,6 @@ class LogBook:
     def get_performance(self, table, site_number):
         performance = self.performance[table][site_number]
         return performance
-
-    # return residual value
-    def summarize_residuals(self, site_number):
-        residuals = DataFrame(data=self.residuals[self.residuals.index==site_number], columns=['residual'])
-        return residuals
 
     # return series of value if site is target site
     def identify_target(self, sites, site_number, site_col='site', site_adder=True, target_col='target'):
@@ -216,10 +204,6 @@ class Shop:
 
                 self.transact(fru.serial, fru.model, fru.mark, fru.get_power(), fru.get_efficiency(),
                               'repaired FRU', 'from', site_number, server_number, enclosure_number, cost)
-
-        if final:
-            # FRU is finished with site and has residual value
-            self.log_book.record_residuals(site_number, fru)
 
         return
 
@@ -586,12 +570,3 @@ class Fleet:
         fru_performance = self.shop.log_book.get_performance('fru', site_number)
 
         return fru_performance
-
-    # return residual value
-    def summarize_residuals(self, site_number='target'):
-        if self.shop is not None:
-            if site_number == 'target':
-                site_number = self.target_site
-
-            residuals = self.shop.log_book.summarize_residuals(site_number)
-            return residuals

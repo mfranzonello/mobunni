@@ -665,10 +665,17 @@ class Excelerator:
         for chart in charts:
             sheetname = chart['sheetname']
             df = self.dataframes[sheetname]
-            columns = self.get_column_indices(sheetname, chart['columns'])
+
+            chart_columns = chart['columns']
+            column_indices = self.get_column_indices(sheetname, chart_columns)
+            columns = {column_index: {'color': color, 'dash': dash} for (column_index, color, dash) in zip(column_indices, chart['colors'], chart['dashes'])}
+
             max_rows, max_columns = df.shape
-            offset = [chart.get('header row', 0) + 1, max_columns + 1]
-            self.charts.append({'sheetname': sheetname, 'columns': columns, 'rows': max_rows, 'offset': offset})
+            chart_sheet_name = chart.get('chart sheet name')
+            offset = None if chart_sheet_name else [chart.get('header row', 0) + 1, max_columns + 1]
+
+            self.charts.append({'sheetname': sheetname, 'columns': columns, 'rows': max_rows, 'offset': offset, 'chart sheet name': chart_sheet_name,
+                                'y-axis': chart.get('y-axis')})
         return
 
     def get_column_indices(self, sheetname, columns):
@@ -680,16 +687,18 @@ class Excelerator:
         self.dataframes[sheetname].to_excel(writer, sheet_name=sheetname, index=False)
         return
 
-    def add_format(self, writer, sheetname, style, columns):
+    def add_format(self, writer, sheetname, style, columns, width=None):
         format_style = writer.book.add_format({'num_format': style})
         for column in columns:
             xl_column = self.get_excel_column(column)
             xl_range = '{}:{}'.format(xl_column, xl_column)
-            writer.sheets[sheetname].set_column(xl_range, None, format_style)
+            writer.sheets[sheetname].set_column(xl_range, width, format_style)
      
     # add a chart to the output
-    def add_chart(self, writer, sheetname, columns, rows, chart_type='line', header_row=0, category_column=0, offset=None):
-        if offset is None:
+    def add_chart(self, writer, sheetname, columns, rows, chart_type='line',
+                  header_row=0, category_column=0,
+                  offset=None, chart_sheet_name=None, y_axis=None):
+        if not (offset or chart_sheet_name):
             offset = [1, 1]
         workbook = writer.book
         worksheet = writer.sheets[sheetname]
@@ -700,10 +709,18 @@ class Excelerator:
                 chart.add_series({'name': [sheetname, header_row, column],
                                   'categories': [sheetname, 1, header_row, rows, category_column],
                                   'values': [sheetname, 1, column, rows, column],
+                                  'border': {'color': columns[column]['color'], 'dash_type': columns[column]['dash']}
                                   })
+               
+        if y_axis:
+            chart.set_y_axis(y_axis)
 
-        insert_address = self.get_excel_address(offset[0], offset[1])
-        worksheet.insert_chart(insert_address, chart)
+        if offset:
+            insert_address = self.get_excel_address(offset[0], offset[1])
+            worksheet.insert_chart(insert_address, chart)
+        else:
+            chartsheet = workbook.add_chartsheet(chart_sheet_name)
+            chartsheet.set_chart(chart)
 
     # print output to Excel file and open
     def to_excel(self, start=False):
@@ -715,9 +732,10 @@ class Excelerator:
         for sheetname in self.dataframes:
             self.add_sheet(writer, sheetname)
         for style in self.formats:
-            self.add_format(writer, style['sheetname'], style['style'], style['columns'])
+            self.add_format(writer, style['sheetname'], style['style'], style['columns'], style.get('width'))
         for chart in self.charts:
-            self.add_chart(writer, chart['sheetname'], chart['columns'], chart['rows'], offset=chart.get('offset'))
+            self.add_chart(writer, chart['sheetname'], chart['columns'], chart['rows'],
+                           offset=chart.get('offset'), chart_sheet_name=chart.get('chart sheet name'), y_axis=chart.get('y-axis'))
 
         writer.save()
 

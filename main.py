@@ -1,10 +1,12 @@
 # main script to read inputs, set up structure, run simulation and print results
 
+from math import floor
+
 from structure import Project, SQLDB, ExcelInt, Excelerator
 from groups import Details, Commitments, Technology, Tweaks
 from simulate import Scenario, Simulation
 
-from debugging import StopWatch
+from debugging import StopWatch, open_results
 
 # inputs
 structure_db = 'bpm.db'
@@ -56,31 +58,45 @@ def run_simulation(details, scenario, sql_db):
 
 # output results
 def save_results(project, scenario, simulation):
-    inputs, site_performance, residuals, costs, fru_power, fru_efficiency, transactions = simulation.get_results()
-    excelerator = Excelerator(path=None, filename='bpm_results_{}_{}'.format(project.name, scenario.name), extension='xlsx')  
+    inputs, site_performance, costs, fru_power, fru_efficiency, transactions = simulation.get_results()
+    excelerator = Excelerator(path=None, filename='bpm_results_{}_{}'.format(project.name, scenario.name), extension='xlsx')
+
+    # store data
     excelerator.store_sheets({'Inputs': inputs,
-                              'Power+Eff (avg)': site_performance['mean'],
-                              'Power+Eff (max)': site_performance['max'],
-                              'Power+Eff (min)': site_performance['min'],
-                              'Residual': residuals, 'Costs': costs,
+                              'Power+Eff': site_performance, 'Costs': costs,
                               'Power': fru_power, 'Efficiency': fru_efficiency, 'Transactions': transactions})
 
-    formatsheets = ['Power+Eff (avg)', 'Power+Eff (max)', 'Power+Eff (min)']
-    formats = [{'sheetname': sheetname,
-                'columns': ['CTMO', 'WTMO', 'PTMO', 'Ceff', 'Weff', 'Peff'],
-                'style': '0.00%'} for sheetname in formatsheets] + \
-              [{'sheetname': sheetname,
-                'columns': ['power', 'fuel', 'ceiling loss'],
-                'style': '#,##0'} for sheetname in formatsheets] + \
-              [{'sheetname': sheetname,
-                'columns': ['date'],
-                'style': 'mm/yyyy'} for sheetname in formatsheets]
+    percent_values = ['TMO', 'eff']
+    comma_values = ['power', 'fuel', 'ceiling loss']
+    date_values = ['date']
+
+    ranges = {'C': '#2E86C1', 'W': '#E74C3C', 'P': '#28B463'}
+    if not scenario.windowed:
+        ranges.pop('W')
+    bounds = {'_max': 'dash', '': 'solid', '_min': 'dash'}
+
+    percent_columns = ['{}{}{}'.format(r, v, b) for v in percent_values for r in ranges for b in bounds]
+    comma_columns = ['{}{}'.format(v, b) for v in comma_values for b in bounds]
+    date_columns = date_values
+
+    styles = {'0.00%': percent_columns,
+              '#,##0': comma_columns,
+              'mm/yyyy': date_columns}
+  
+    # store formatting
+    format_sheet = 'Power+Eff'
+    formats = [{'sheetname': format_sheet, 'columns': cols, 'style': style} for (cols, style) in zip(styles.values(), styles.keys())]
     excelerator.store_formats(formats)
 
-    chartsheets = ['Power+Eff (avg)', 'Power+Eff (max)', 'Power+Eff (min)']
-    charts = [{'sheetname': sheetname, 'columns': ['CTMO', 'WTMO', 'PTMO', 'Ceff', 'Weff', 'Peff']} for sheetname in chartsheets]
+    # store charts
+    chart_sheet = 'Power+Eff'
+    chart_columns = percent_columns
+    chart_colors = [ranges[r] for v in percent_values for r in ranges for b in bounds]
+    chart_dashes = [bounds[b] for v in percent_values for r in ranges for b in bounds]
+    chart_y_axis = {'max': 1.0, 'min': floor(10*site_performance[chart_columns].min().min())/10}
+    charts = [{'sheetname': chart_sheet, 'columns': chart_columns, 'colors': chart_colors, 'dashes': chart_dashes, 'chart sheet name': 'Graph', 'y-axis': chart_y_axis}]
     excelerator.store_charts(charts)
-    excelerator.to_excel(start=False)
+    excelerator.to_excel(start=open_results)
 
 # run scenarios
 def run_scenarios(project, excel_int, details, sql_db):

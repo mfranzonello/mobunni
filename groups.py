@@ -43,17 +43,17 @@ class Commitments(Group):
         self.number = None
         self.deal = None
 
-        self.data = self.set_data()
-
-    def set_data(self):
         self.data = [['contract length', self.length],
                      ['contract target size', self.target_size],
                      ['contract start date', self.start_date],
                      ['contract months passed', self.start_month],
-                     ['CTMO limit', self.limits['CTMO']],
-                     ['WTMO limit', self.limits['WTMO']],
-                     ['WTMO window', self.limits['window']],
-                     ['PTMO limit', self.limits['PTMO']],
+                     ['cumulative TMO limit', self.limits['CTMO']],
+                     ['windowed TMO limit', self.limits['WTMO']],
+                     ['periodic TMO limit', self.limits['PTMO']],
+                     ['cumulative efficiency limit', self.limits['Ceff']],
+                     ['windowed efficiency limit', self.limits['Weff']],
+                     ['periodic efficiency limit', self.limits['Peff']],
+                     ['window', self.limits['window'] if self.limits['WTMO'] or self.limits['Weff'] else None],
                      ['downside years', self.non_replace]]
 
 # collection of exisiting and future technology

@@ -29,6 +29,7 @@ class Contract:
         self.start_month = start_month
         self.non_replace = non_replace
         self.limits = limits
+        self.windowed = (limits['WTMO'] or limits['Weff']) and limits['window']
         self.start_ctmo = start_ctmo
 
     # change the terms of the contract

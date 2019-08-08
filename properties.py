@@ -21,6 +21,7 @@ class Site:
         self.monitor = Monitor(self.number, self.contract.start_date, self.contract.length)
 
         self.limits = contract.limits
+        self.windowed = contract.windowed
 
         self.server_model = None
         self.servers = []
@@ -310,7 +311,7 @@ class Site:
             (self.monitor.get_starting_cumulative('tmo'))*ctmo_adj
         self.monitor.store_result('performance', 'CTMO', self.month, ctmo)
 
-        if self.limits['window']:
+        if self.windowed:
             wtmo = self.monitor.get_result('performance', 'power', self.month, start_month=window_start, function='mean') / self.system_size
             self.monitor.store_result('performance', 'WTMO', self.month, wtmo)
         else:
@@ -323,11 +324,11 @@ class Site:
         fuel = self.monitor.get_result('performance', 'power', self.month) / efficiency if efficiency else 0
         self.monitor.store_result('performance', 'fuel', self.month, fuel)
 
-        total_fuel = self.monitor.get_result('performance', 'fuel', self.month, sum)
-        ceff = self.monitor.get_result('performance', 'power', self.month, sum) / total_fuel if total_fuel else 0
+        total_fuel = self.monitor.get_result('performance', 'fuel', self.month, function='sum')
+        ceff = self.monitor.get_result('performance', 'power', self.month, function='sum') / total_fuel if total_fuel else 0
         self.monitor.store_result('performance', 'Ceff', self.month, ceff)
 
-        if self.limits['window']:
+        if self.windowed:
             weff = self.monitor.get_result('performance', 'power', self.month, start_month=window_start, function='sum') \
                 / self.monitor.get_result('performance', 'fuel', self.month, start_month=window_start, function='sum')
             self.monitor.store_result('performance', 'Weff', self.month, weff)

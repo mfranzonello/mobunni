@@ -20,6 +20,8 @@ class Scenario:
         self.technology = technology
         self.tweaks = tweaks
 
+        self.windowed = (self.commitments.limits['WTMO'] or self.commitments.limits['Weff']) and self.commitments.limits['window']
+
     # save specifice inputs from a scenario
     def get_inputs(self, details):
         inputs = concat([item.get_inputs() for item in [details, self.commitments, self.technology, self.tweaks]],
@@ -32,7 +34,6 @@ class Simulation:
     def __init__(self, details, scenario, sql_db):
         self.fru_performance = []
         self.site_performance = []
-        self.residuals = []
         self.costs = []
         self.transactions = []
         
@@ -127,7 +128,6 @@ class Simulation:
     def append_summaries(self, fleet):
         # store fleet power, efficiency and costs
         self.site_performance.append(fleet.summarize_site_performance())
-        self.residuals.append(fleet.summarize_residuals())
         self.costs.append(fleet.summarize_transactions())
 
         # keep record of transactions and FRU performance
@@ -179,18 +179,18 @@ class Simulation:
 
         # average the run performance
         performance = concat(self.site_performance)
-        performance_gb = performance.drop(['site', 'year'], axis='columns').groupby(['date'])
+        drops = ['site', 'year']
+        if self.scenario.windowed:
+            drops.extend(['WTMO', 'Weff'])
+        performance_gb = performance.drop(drops, axis='columns').groupby(['date'])
         performance_mean = performance_gb.mean().reset_index()
         performance_max = performance_gb.max().reset_index()
         performance_min = performance_gb.min().reset_index()
-        site_performance = {'mean': performance_mean,
-                            'max': performance_max,
-                            'min': performance_min}
 
-        # average the residual value
-        residuals = concat(self.residuals)
-        residual_summary = residuals.mean()
-        
+        site_performance = performance_mean\
+            .merge(performance_max, on='date', suffixes=['', '_max'])\
+            .merge(performance_min, on='date', suffixes=['', '_min'])
+       
         # average the run costs
         costs = concat(self.costs)
         cost_summary = costs[costs['target']].drop('target', axis='columns').groupby(['year', 'action']).mean().reset_index()
@@ -202,4 +202,4 @@ class Simulation:
         # pull last transaction log 
         transaction_sample = self.transactions[-1]
 
-        return self.inputs, site_performance, residual_summary, cost_summary, fru_power_sample, fru_efficiency_sample, transaction_sample
+        return self.inputs, site_performance, cost_summary, fru_power_sample, fru_efficiency_sample, transaction_sample
