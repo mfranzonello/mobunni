@@ -89,3 +89,21 @@ class Tweaks(Group):
         self.data = [['repair threshold', self.repair],
                      ['redeploy level', self.junk_level],
                      ['use best FRU available', self.best]]
+
+# collection of database modeling thresholds
+class Thresholds(Group):
+    def __init__(self, thresholds):
+        self.thresholds = thresholds
+
+        self.data = [['min power degradation when FRUs can be pulled', self.thresholds.get('degraded')],
+                     ['min efficiency degradation when FRUs can be repaired', self.thresholds.get('inefficient')],
+                     ['min deviation when FRUs can be repaired', self.thresholds.get('deviated')],
+                     ['years before end of contract to early deploy', self.thresholds.get('early deploy')],
+                     ['years before end of contract cannot deploy', self.thresholds.get('no deploy')],
+                     ['early deploy target TMO padding', self.thresholds.get('tmo pad')],
+                     ['process time for FRU redeployment', self.thresholds.get('deploy months')],
+                     ]
+
+    def get_values(self):
+        values = self.thresholds
+        return values

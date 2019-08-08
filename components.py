@@ -62,7 +62,18 @@ class FRU:
         
         return power
 
-    # estimate the power curvey in deployed FRU
+    # estimate the power looking ahead a number of months
+    def get_expected_power(self, months=0):
+        curve = self.get_expected_curve()
+        lookahead_month = self.month + months
+        if len(curve) < lookahead_month:
+            expected_power = 0
+        else:
+            expected_power = curve[lookahead_month]
+
+        return expected_power
+
+    # estimate the power curve in deployed FRU
     def get_expected_curve(self):
         curve = self.power_curves.get_expected_curve(self.month, self.get_power())
         curve.index = range(len(curve))
@@ -172,8 +183,14 @@ class Enclosure:
         return
 
     # get power of FRU if not empty
-    def get_power(self):
-        power = min(self.rating, self.fru.get_power()) if not self.is_empty() else 0
+    def get_power(self, lookahead=None):
+        if self.is_empty():
+            power = 0
+        elif lookahead:
+            power = min(self.rating, self.fru.get_expected_power(lookahead))
+        else:
+            power = min(self.rating, self.fru.get_power())
+
         return power
 
     # get expected energy of FRU if not empty
@@ -219,13 +236,13 @@ class Server:
         return old_fru
 
     # return array of FRU powers
-    def get_fru_power(self):
-        fru_power = [enclosure.get_power() for enclosure in self.enclosures]
+    def get_fru_power(self, lookahead=None):
+        fru_power = [enclosure.get_power(lookahead) for enclosure in self.enclosures]
         return fru_power
 
     # get total power of all FRUs, capped at nameplate rating
-    def get_power(self, cap=True):
-        power = sum(self.get_fru_power())
+    def get_power(self, cap=True, lookahead=None):
+        power = sum(self.get_fru_power(lookahead))
         if cap:
             power = min(self.nameplate, power)
 

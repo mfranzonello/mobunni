@@ -92,14 +92,16 @@ class Site:
         return fru_power
 
     # current overall power output of site
-    def get_site_power(self):
+    def get_site_power(self, lookahead=None):
         # find potential power output of frus at each server
-        server_power = self.get_fru_power().sum('columns')
+        site_power = sum([server.get_power(lookahead) for server in self.servers])
+        
+        #self.get_fru_power().sum('columns')
         
         # cap server power output at nameplate rating
-        server_nameplates = self.get_server_nameplates()
-        max_server_power = server_power.where(server_power<server_nameplates, server_nameplates)
-        site_power = max_server_power.sum()
+        #server_nameplates = self.get_server_nameplates()
+        #max_server_power = server_power.where(server_power<server_nameplates, server_nameplates)
+        #site_power = max_server_power.sum()
 
         return site_power
 

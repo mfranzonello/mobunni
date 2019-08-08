@@ -245,40 +245,64 @@ class Inspector:
 
     # look for early deploy opportunities
     def check_deploys(site, commitments):
+        lookahead = site.get_months_remaining()
+
         # estimate final CTMO if FRUs degrade as expected and add FRUs if needed, with padding
         StopWatch.timer('get expected CTMO')
         expected_ctmo = (site.get_energy_produced() + site.get_energy_remaining()) / (site.contract.length * 12) / site.system_size
         StopWatch.timer('get expected CTMO')
 
-        # CHECK PTMO??
-        #expected_ptmo = 
+        ## CHECK IF THERE WILL BE CEILING LOSS?
 
-        # CHECK IF THERE WILL BE CEILING LOSS
+        # check PTMO
+        expected_ptmo = site.get_site_power(lookahead=lookahead)
+        if Inspector.check_fail(site, expected_ptmo, site.limits['PTMO'] + site.shop.thresholds['tmo pad']):
+            additional_power = site.limits['PTMO'] + site.shop.thresholds['tmo pad'] - expected_ptmo
+            server_dp, enclosure_dp = Inspector.get_worst_fru(site, 'power')
+            if server_dp and enclosure_dp:
+                power_pulled = site.servers[server_dp].enclosures[enclosure_dp].get_power(lookahead)
+                power_needed = additional_power - power_pulled
 
-        if Inspector.check_fail(site, expected_ctmo, site.limits['CTMO'] + site.shop.thresholds['ctmo pad']):
-            additional_energy = (site.limits['CTMO'] + site.shop.thresholds['ctmo pad']) * site.contract.length * 12 * site.system_size \
+                new_fru = site.shop.get_best_fit_fru(site.server_model, site.get_date(), site.number, server_dp, enclosure_dp,
+                                        power_needed=power_needed, time_needed=lookahead)
+
+                # there is a FRU that meets ceiling loss requirements
+                if new_fru is not None:
+
+                    # swap out old FRU and store if not empty
+                    old_fru = site.replace_fru(server_dp, enclosure_dp, new_fru)
+                    if old_fru is not None:
+                        # FRU replaced an existing module
+                        site.shop.store_fru(old_fru, site.number, server_dp, enclosure_dp)
+                    else:
+                        # FRU was added to empty enclosure, so check for overloading
+                        site.balance_site()
+
+        # check CTMO
+        if Inspector.check_fail(site, expected_ctmo, site.limits['CTMO'] + site.shop.thresholds['tmo pad']):
+            additional_energy = (site.limits['CTMO'] + site.shop.thresholds['tmo pad']) * site.contract.length * 12 * site.system_size \
                 - (site.get_energy_produced() + site.get_energy_remaining())
             
-            server_d, enclosure_d = Inspector.get_worst_fru(site, 'energy')
+            server_dc, enclosure_dc = Inspector.get_worst_fru(site, 'energy')
 
-            if server_d and enclosure_d:
+            if server_dc and enclosure_dc:
                 # there is an empty enclosure or a FRU can be replaced
-                energy_pulled = site.servers[server_d].enclosures[enclosure_d].get_energy(months=site.get_months_remaining())
+                energy_pulled = site.servers[server_dc].enclosures[enclosure_dc].get_energy(months=lookahead)
                 energy_needed = additional_energy - energy_pulled
             
                 StopWatch.timer('get best fit FRU [early deploy]')
-                new_fru = site.shop.get_best_fit_fru(site.server_model, site.get_date(), site.number, server_d, enclosure_d,
-                                                     energy_needed=energy_needed, time_needed=site.get_months_remaining())
+                new_fru = site.shop.get_best_fit_fru(site.server_model, site.get_date(), site.number, server_dc, enclosure_dc,
+                                                     energy_needed=energy_needed, time_needed=lookahead)
                 StopWatch.timer('get best fit FRU [early deploy]')
 
                 # there is a FRU that meets ceiling loss requirements
                 if new_fru is not None:
 
                     # swap out old FRU and store if not empty
-                    old_fru = site.replace_fru(server_d, enclosure_d, new_fru)
+                    old_fru = site.replace_fru(server_dc, enclosure_dc, new_fru)
                     if old_fru is not None:
                         # FRU replaced an existing module
-                        site.shop.store_fru(old_fru, site.number, server_d, enclosure_d)
+                        site.shop.store_fru(old_fru, site.number, server_dc, enclosure_dc)
                     else:
                         # FRU was added to empty enclosure, so check for overloading
                         site.balance_site()

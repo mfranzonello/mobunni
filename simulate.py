@@ -23,15 +23,15 @@ class Scenario:
         self.windowed = (self.commitments.limits['WTMO'] or self.commitments.limits['Weff']) and self.commitments.limits['window']
 
     # save specifice inputs from a scenario
-    def get_inputs(self, details):
-        inputs = concat([item.get_inputs() for item in [details, self.commitments, self.technology, self.tweaks]],
+    def get_inputs(self, *args):
+        inputs = concat([item.get_inputs() for item in [*args, self.commitments, self.technology, self.tweaks]],
                          ignore_index=True)
         
         return inputs
 
 # sites installed over phases and run for full contracts
 class Simulation:
-    def __init__(self, details, scenario, sql_db):
+    def __init__(self, details, scenario, sql_db, thresholds):
         self.fru_performance = []
         self.site_performance = []
         self.costs = []
@@ -39,10 +39,13 @@ class Simulation:
         
         self.details = details
         self.scenario = scenario
+
         self.sql_db = sql_db
-                
+        self.thresholds = thresholds.get_values()
+        
         self.tweaks = scenario.tweaks
-        self.inputs = scenario.get_inputs(self.details)
+
+        self.inputs = scenario.get_inputs(details, thresholds)
 
         self.portfolio = Portfolio()
        
@@ -53,7 +56,7 @@ class Simulation:
         fleet = Fleet(self.scenario.commitments.target_size, self.details.n_sites, self.details.n_years,
                       system_sizes, system_dates, self.scenario.commitments.start_date, min_date)
 
-        shop = Shop(self.sql_db, self.scenario.commitments.start_date, tweaks=self.tweaks,
+        shop = Shop(self.sql_db, self.thresholds, self.scenario.commitments.start_date, tweaks=self.tweaks,
                     allowed_fru_models=self.scenario.technology.allowed_fru_models)
         fleet.add_shop(shop)
 
@@ -194,6 +197,9 @@ class Simulation:
         # average the run costs
         costs = concat(self.costs)
         cost_summary = costs[costs['target']].drop('target', axis='columns').groupby(['year', 'action']).mean().reset_index()
+        cost_summary_dollars = cost_summary.pivot(index='year', columns='action', values='service cost').reset_index()
+        cost_summary_quants = cost_summary.pivot(index='year', columns='action', values='count').reset_index()
+        cost_tables = [cost_summary_dollars, cost_summary_quants]
       
         # pull the last FRU performance
         fru_power_sample = self.fru_performance[-1]['power'].drop('site', axis='columns')
@@ -202,4 +208,4 @@ class Simulation:
         # pull last transaction log 
         transaction_sample = self.transactions[-1]
 
-        return self.inputs, site_performance, cost_summary, fru_power_sample, fru_efficiency_sample, transaction_sample
+        return self.inputs, site_performance, cost_tables, fru_power_sample, fru_efficiency_sample, transaction_sample

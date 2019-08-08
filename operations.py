@@ -114,14 +114,14 @@ class LogBook:
 
 # warehouse to store, repair and deploy old FRUs and create new FRUs
 class Shop:
-    def __init__(self, sql_db, install_date, tweaks,
+    def __init__(self, sql_db, thresholds, install_date, tweaks,
                  allowed_fru_models=None):
         self.sql_db = sql_db
 
         self.power_modules = PowerModules(sql_db)
         self.templates = Templates(sql_db)
 
-        self.thresholds = self.sql_db.get_thresholds()
+        self.thresholds = thresholds
 
         self.junk_level = tweaks.junk_level
         self.deploy_months = tweaks.deploy_months

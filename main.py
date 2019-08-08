@@ -2,8 +2,10 @@
 
 from math import floor
 
-from structure import Project, SQLDB, ExcelInt, Excelerator
-from groups import Details, Commitments, Technology, Tweaks
+from structure import Project, SQLDB
+from xl_inputs import ExcelInt
+from xl_outputs import Excelerator, ExcelePaint
+from groups import Details, Commitments, Technology, Tweaks, Thresholds
 from simulate import Scenario, Simulation
 
 from debugging import StopWatch, open_results
@@ -22,7 +24,8 @@ def get_project():
 def get_structure(structure_db):
     print('Reading structure database')
     sql_db = SQLDB(structure_db)
-    return sql_db
+    thresholds = Thresholds(sql_db.get_thresholds())
+    return sql_db, thresholds
 
 # build details
 def get_details(excel_int):
@@ -51,65 +54,37 @@ def get_scenario(excel_int, scenario_number):
     return scenario
 
 # run simulation
-def run_simulation(details, scenario, sql_db):
-    simulation = Simulation(details, scenario, sql_db)
+def run_simulation(details, scenario, sql_db, thresholds):
+    simulation = Simulation(details, scenario, sql_db, thresholds)
     simulation.run_scenario()
     return simulation
 
 # output results
 def save_results(project, scenario, simulation):
     inputs, site_performance, costs, fru_power, fru_efficiency, transactions = simulation.get_results()
+    
+    # set up output
     excelerator = Excelerator(path=None, filename='bpm_results_{}_{}'.format(project.name, scenario.name), extension='xlsx')
-
-    # store data
-    excelerator.store_sheets({'Inputs': inputs,
-                              'Power+Eff': site_performance, 'Costs': costs,
-                              'Power': fru_power, 'Efficiency': fru_efficiency, 'Transactions': transactions})
-
-    percent_values = ['TMO', 'eff']
-    comma_values = ['power', 'fuel', 'ceiling loss']
-    date_values = ['date']
-
-    ranges = {'C': '#2E86C1', 'W': '#E74C3C', 'P': '#28B463'}
-    if not scenario.windowed:
-        ranges.pop('W')
-    bounds = {'_max': 'dash', '': 'solid', '_min': 'dash'}
-
-    percent_columns = ['{}{}{}'.format(r, v, b) for v in percent_values for r in ranges for b in bounds]
-    comma_columns = ['{}{}'.format(v, b) for v in comma_values for b in bounds]
-    date_columns = date_values
-
-    styles = {'0.00%': percent_columns,
-              '#,##0': comma_columns,
-              'mm/yyyy': date_columns}
-  
-    # store formatting
-    format_sheet = 'Power+Eff'
-    formats = [{'sheetname': format_sheet, 'columns': cols, 'style': style} for (cols, style) in zip(styles.values(), styles.keys())]
+    
+    # assemble output
+    data, formats, charts = ExcelePaint.get_paints(scenario.windowed, inputs, site_performance, costs, fru_power, fru_efficiency, transactions)
+    excelerator.store_data(data)
     excelerator.store_formats(formats)
-
-    # store charts
-    chart_sheet = 'Power+Eff'
-    chart_columns = percent_columns
-    chart_colors = [ranges[r] for v in percent_values for r in ranges for b in bounds]
-    chart_dashes = [bounds[b] for v in percent_values for r in ranges for b in bounds]
-    chart_y_axis = {'max': 1.0, 'min': floor(10*site_performance[chart_columns].min().min())/10}
-    charts = [{'sheetname': chart_sheet, 'columns': chart_columns, 'colors': chart_colors, 'dashes': chart_dashes, 'chart sheet name': 'Graph', 'y-axis': chart_y_axis}]
     excelerator.store_charts(charts)
     excelerator.to_excel(start=open_results)
 
 # run scenarios
-def run_scenarios(project, excel_int, details, sql_db):
+def run_scenarios(project, excel_int, details, sql_db, thresholds):
     for scenario_number in range(details.n_scenarios):
         scenario = get_scenario(excel_int, scenario_number)
         
         # run simulation
-        simulation = run_simulation(details, scenario, sql_db)
+        simulation = run_simulation(details, scenario, sql_db, thresholds)
         save_results(project, scenario, simulation)
 
 # main code
 project, excel_int = get_project()
-sql_db = get_structure(structure_db)
+sql_db, thresholds = get_structure(structure_db)
 details = get_details(excel_int)
-run_scenarios(project, excel_int, details, sql_db)
+run_scenarios(project, excel_int, details, sql_db, thresholds)
 StopWatch.show_results()
