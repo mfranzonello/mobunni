@@ -320,10 +320,11 @@ class Site:
         self.monitor.store_result('performance', 'PTMO', self.month, ptmo)
         
         efficiency = self.get_site_efficiency()
-        fuel = self.monitor.get_result('performance', 'power', self.month) / efficiency if efficiency != 0 else 0
+        fuel = self.monitor.get_result('performance', 'power', self.month) / efficiency if efficiency else 0
         self.monitor.store_result('performance', 'fuel', self.month, fuel)
 
-        ceff = self.monitor.get_result('performance', 'power', self.month, sum) / self.monitor.get_result('performance', 'fuel', self.month, sum)
+        total_fuel = self.monitor.get_result('performance', 'fuel', self.month, sum)
+        ceff = self.monitor.get_result('performance', 'power', self.month, sum) / total_fuel if total_fuel else 0
         self.monitor.store_result('performance', 'Ceff', self.month, ceff)
 
         if self.limits['window']:
@@ -362,11 +363,11 @@ class Site:
                     power = nan
                     efficiency = nan
 
-                self.monitor.store_result('power', self.month, 'ES{}|ENC{}'.format(server.number, enclosure.number), power)
-                self.monitor.store_result('efficiency', self.month, 'ES{}|ENC{}'.format(server.number, enclosure.number), efficiency)
+                self.monitor.store_result('power', 'ES{}|ENC{}'.format(server.number, enclosure.number), self.month, power)
+                self.monitor.store_result('efficiency', 'ES{}|ENC{}'.format(server.number, enclosure.number), self.month, efficiency)
                 
-            self.monitor.store_result('power', self.month, 'ES{}|='.format(server.number), server.get_power())
-            self.monitor.store_result('power', self.month, 'ES{}|-'.format(server.number), server.get_ceiling_loss())
+            self.monitor.store_result('power', 'ES{}|='.format(server.number), self.month, server.get_power())
+            self.monitor.store_result('power', 'ES{}|-'.format(server.number), self.month, server.get_ceiling_loss())
 
     # use inspector to check site
     def check_site(self):

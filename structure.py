@@ -7,6 +7,7 @@ import zipfile
 import fnmatch
 import io
 from xml.etree import ElementTree
+from math import floor
 
 from pandas import DataFrame, ExcelFile, ExcelWriter, read_sql, to_numeric
 from numpy import nan
@@ -596,6 +597,8 @@ class Excelerator:
         self.writer = None
 
         self.dataframes = {}
+        self.charts = []
+        self.formats = []
 
     # get windows username to print to desktop by default
     def get_desktop(self):
@@ -619,25 +622,103 @@ class Excelerator:
             c += 1
             next_name = '{}_{}'.format(filename, c)
         return next_name
-       
-    # add values to an output sheet
-    def add_sheet(self, sheetname, dataframe, index=True):
-        self.dataframes[sheetname] = {'df': dataframe, 'index': index}
+
+    def get_excel_row(self, row):
+        xl_row = row + 1
+        return xl_row
+
+    def get_excel_column(self, column):
+        columns = string.ascii_uppercase
+        xl_column = columns[column % len(columns)]
+        if column >= len(columns):
+            xl_column = columns[floor(column/len(columns) - 1) % len(columns)] + xl_column
+
+        if column >= len(columns) ** 2:
+            xl_column = columns[floor(column/len(columns)**2 - 1) % len(columns)] + xl_column
+
+        return xl_column
+
+    # get the excel $C$R format of a position
+    def get_excel_address(self, row, column, fix=False):
+        xl_row = self.get_excel_row(row)
+        xl_column = self.get_excel_column(column)
+        
+        fixed = '$' if fix else ''
+        address = '{}{}{}{}'.format(fixed, xl_column, fixed, xl_row)
+
+        return address
+      
+    # store sheet value data
+    def store_sheets(self, sheets):
+        self.dataframes = sheets
         return
 
-    # add values to output sheets
-    def add_sheets(self, sheets, index=True):
-        for sheet in sheets:
-            self.add_sheet(sheet, sheets[sheet], index=index)
+    def store_formats(self, formats):
+        for style in formats:
+            sheetname = style['sheetname']
+            columns = self.get_column_indices(sheetname, style['columns'])
+            self.formats.append({'sheetname': sheetname, 'style': style['style'], 'columns': columns})
         return
+
+    # store chart data
+    def store_charts(self, charts):
+        for chart in charts:
+            sheetname = chart['sheetname']
+            df = self.dataframes[sheetname]
+            columns = self.get_column_indices(sheetname, chart['columns'])
+            max_rows, max_columns = df.shape
+            offset = [chart.get('header row', 0) + 1, max_columns + 1]
+            self.charts.append({'sheetname': sheetname, 'columns': columns, 'rows': max_rows, 'offset': offset})
+        return
+
+    def get_column_indices(self, sheetname, columns):
+        column_indices = [self.dataframes[sheetname].columns.to_list().index(c) for c in columns]
+        return column_indices
+
+    # add values to an output sheet
+    def add_sheet(self, writer, sheetname):
+        self.dataframes[sheetname].to_excel(writer, sheet_name=sheetname, index=False)
+        return
+
+    def add_format(self, writer, sheetname, style, columns):
+        format_style = writer.book.add_format({'num_format': style})
+        for column in columns:
+            xl_column = self.get_excel_column(column)
+            xl_range = '{}:{}'.format(xl_column, xl_column)
+            writer.sheets[sheetname].set_column(xl_range, None, format_style)
+     
+    # add a chart to the output
+    def add_chart(self, writer, sheetname, columns, rows, chart_type='line', header_row=0, category_column=0, offset=None):
+        if offset is None:
+            offset = [1, 1]
+        workbook = writer.book
+        worksheet = writer.sheets[sheetname]
+        chart = workbook.add_chart({'type': chart_type})
+
+        if chart_type in ['line', 'scatter']:
+            for column in columns:
+                chart.add_series({'name': [sheetname, header_row, column],
+                                  'categories': [sheetname, 1, header_row, rows, category_column],
+                                  'values': [sheetname, 1, column, rows, column],
+                                  })
+
+        insert_address = self.get_excel_address(offset[0], offset[1])
+        worksheet.insert_chart(insert_address, chart)
 
     # print output to Excel file and open
     def to_excel(self, start=False):
         next_file = Excelerator.next_file(self.path, self.filename, self.extension)
         outpath = r'{}\{}.{}'.format(self.path, next_file, self.extension)
         writer = ExcelWriter(outpath, engine='xlsxwriter')
+
+        # assemble outputs
         for sheetname in self.dataframes:
-            self.dataframes[sheetname]['df'].to_excel(writer, sheet_name=sheetname, index=self.dataframes[sheetname]['index'])
+            self.add_sheet(writer, sheetname)
+        for style in self.formats:
+            self.add_format(writer, style['sheetname'], style['style'], style['columns'])
+        for chart in self.charts:
+            self.add_chart(writer, chart['sheetname'], chart['columns'], chart['rows'], offset=chart.get('offset'))
+
         writer.save()
 
         if start:

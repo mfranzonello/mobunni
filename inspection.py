@@ -10,7 +10,7 @@ class Monitor:
         self._starting_cumulative = {'tmo': start_ctmo,
                                      'efficiency': start_eff}
 
-        contract_date_range = date_range(start=start_date, periods=contract_length*12, freq='MS')
+        contract_date_range = date_range(start=start_date, periods=contract_length*12, freq='MS').date
         self._performance = DataFrame(columns=['site', 'date', 'year',
                                               'power', 'CTMO', 'WTMO', 'PTMO',
                                               'fuel', 'Ceff', 'Weff', 'Peff',
@@ -260,26 +260,28 @@ class Inspector:
                 - (site.get_energy_produced() + site.get_energy_remaining())
             
             server_d, enclosure_d = Inspector.get_worst_fru(site, 'energy')
-            energy_needed = additional_energy - site.servers[server_d].enclosures[enclosure_d].get_energy(months=site.get_months_remaining())
+
+            if server_d and enclosure_d:
+                # there is an empty enclosure or a FRU can be replaced
+                energy_pulled = site.servers[server_d].enclosures[enclosure_d].get_energy(months=site.get_months_remaining())
+                energy_needed = additional_energy - energy_pulled
             
-            StopWatch.timer('get best fit FRU [early deploy]')
-            new_fru = site.shop.get_best_fit_fru(site.server_model, site.get_date(), site.number, server_d, enclosure_d,
-                                                 energy_needed=energy_needed, time_needed=site.get_months_remaining())
-            StopWatch.timer('get best fit FRU [early deploy]')
+                StopWatch.timer('get best fit FRU [early deploy]')
+                new_fru = site.shop.get_best_fit_fru(site.server_model, site.get_date(), site.number, server_d, enclosure_d,
+                                                     energy_needed=energy_needed, time_needed=site.get_months_remaining())
+                StopWatch.timer('get best fit FRU [early deploy]')
 
+                # there is a FRU that meets ceiling loss requirements
+                if new_fru is not None:
 
-
-            # there is a FRU that meets ceiling loss requirements
-            if new_fru is not None:
-
-                # swap out old FRU and store if not empty
-                old_fru = site.replace_fru(server_d, enclosure_d, new_fru)
-                if old_fru is not None:
-                    # FRU replaced an existing module
-                    site.shop.store_fru(old_fru, site.number, server_d, enclosure_d)
-                else:
-                    # FRU was added to empty enclosure, so check for overloading
-                    site.balance_site()
+                    # swap out old FRU and store if not empty
+                    old_fru = site.replace_fru(server_d, enclosure_d, new_fru)
+                    if old_fru is not None:
+                        # FRU replaced an existing module
+                        site.shop.store_fru(old_fru, site.number, server_d, enclosure_d)
+                    else:
+                        # FRU was added to empty enclosure, so check for overloading
+                        site.balance_site()
 
         StopWatch.timer('store_performance')
         commitments, fails = site.store_performance()

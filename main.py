@@ -58,13 +58,28 @@ def run_simulation(details, scenario, sql_db):
 def save_results(project, scenario, simulation):
     inputs, site_performance, residuals, costs, fru_power, fru_efficiency, transactions = simulation.get_results()
     excelerator = Excelerator(path=None, filename='bpm_results_{}_{}'.format(project.name, scenario.name), extension='xlsx')  
-    excelerator.add_sheets({'Inputs': inputs,
-                            'Power+Eff (avg)': site_performance['mean'],
-                            'Power+Eff (max)': site_performance['max'],
-                            'Power+Eff (min)': site_performance['min'],
-                            'Residual': residuals, 'Costs': costs,
-                            'Power': fru_power, 'Efficiency': fru_efficiency, 'Transactions': transactions},
-                           index=False)
+    excelerator.store_sheets({'Inputs': inputs,
+                              'Power+Eff (avg)': site_performance['mean'],
+                              'Power+Eff (max)': site_performance['max'],
+                              'Power+Eff (min)': site_performance['min'],
+                              'Residual': residuals, 'Costs': costs,
+                              'Power': fru_power, 'Efficiency': fru_efficiency, 'Transactions': transactions})
+
+    formatsheets = ['Power+Eff (avg)', 'Power+Eff (max)', 'Power+Eff (min)']
+    formats = [{'sheetname': sheetname,
+                'columns': ['CTMO', 'WTMO', 'PTMO', 'Ceff', 'Weff', 'Peff'],
+                'style': '0.00%'} for sheetname in formatsheets] + \
+              [{'sheetname': sheetname,
+                'columns': ['power', 'fuel', 'ceiling loss'],
+                'style': '#,##0'} for sheetname in formatsheets] + \
+              [{'sheetname': sheetname,
+                'columns': ['date'],
+                'style': 'mm/yyyy'} for sheetname in formatsheets]
+    excelerator.store_formats(formats)
+
+    chartsheets = ['Power+Eff (avg)', 'Power+Eff (max)', 'Power+Eff (min)']
+    charts = [{'sheetname': sheetname, 'columns': ['CTMO', 'WTMO', 'PTMO', 'Ceff', 'Weff', 'Peff']} for sheetname in chartsheets]
+    excelerator.store_charts(charts)
     excelerator.to_excel(start=False)
 
 # run scenarios
