@@ -6,11 +6,11 @@ from debugging import StopWatch
 
 # performance, power and efficiency of a site
 class Monitor:
-    def __init__(self, site_number, start_date, contract_length, start_ctmo=1.0, start_eff=1.0):
+    def __init__(self, site_number, start_date, contract_length, windowed, start_ctmo=1.0, start_eff=1.0):
         self._starting_cumulative = {'tmo': start_ctmo,
                                      'efficiency': start_eff}
 
-        contract_date_range = date_range(start=start_date, periods=contract_length*12, freq='MS').date
+        self.contract_date_range = date_range(start=start_date, periods=contract_length*12, freq='MS').date
         self._performance = DataFrame(columns=['site', 'date', 'year',
                                               'power', 'CTMO', 'WTMO', 'PTMO',
                                               'fuel', 'Ceff', 'Weff', 'Peff',
@@ -18,29 +18,43 @@ class Monitor:
                                     index=range(contract_length*12),
                                     data=0)
 
+        if not windowed:
+            self._performance.drop(['WTMO', 'Weff'], axis='columns', inplace=True)
+
         self._performance.loc[:, 'site'] = site_number + 1
-        self._performance.loc[:, 'date'] = contract_date_range
+        self._performance.loc[:, 'date'] = self.contract_date_range
 
-        self._power = DataFrame(columns=['date'])
-        self._power.loc[:, 'date'] = contract_date_range
-        self._efficiency = self._power.copy()
+        self._power = None
+        self._efficiency = None
 
+    # set up matrix for power and efficiency output
     def set_up(self, servers):
+        ceiling = ['=', '-']
+
+        power_eff = DataFrame(columns=['date'])
+        power_eff.loc[:, 'date'] = self.contract_date_range
+
         reindex = ['date'] + ['ES{}|{}'.format(s_n, e_n) \
             for s_n in range(len(servers)) \
-            for e_n in ['ENC{}'.format(f_n) for f_n in range(len(servers[s_n].enclosures))] + ['=', '-']]
-        self._power = self._power.reindex(reindex, axis='columns')
-        self._efficiency = self._efficiency.reindex(reindex, axis='columns')
+            for e_n in ['ENC{}'.format(f_n) for f_n in range(len(servers[s_n].enclosures))] + ceiling]
 
+        drop = ['ES{}|{}'.format(s_n, e_n) for s_n in range(len(servers)) for e_n in ceiling]
+
+        self._power = power_eff.reindex(reindex, axis='columns')
+        self._efficiency = self._power.drop(drop, axis='columns')
+
+    # return the starting cumulative TMO and cumulative efficiency
     def get_starting_cumulative(self, table):
         value = self._starting_cumulative[table]
         return value
 
+    # add a result from a site inspection
     def store_result(self, table, column, month, value):
         {'performance': self._performance,
          'power': self._power,
          'efficiency': self._efficiency}[table].loc[month, column] = value
 
+    # return a result for a site inspection
     def get_result(self, table, column, month, start_month=0, function=None):
         df = {'performance': self._performance,
               'power': self._power,
@@ -58,6 +72,7 @@ class Monitor:
 
         return result
 
+    # return a set of results
     def get_results(self, table):
         results = {'performance': self._performance,
                    'power': self._power,
@@ -186,9 +201,8 @@ class Inspector:
         commitments, fails = site.store_performance()
 
         # check if FRUs can be replaced this year
-        if site.contract.is_replaceable_year(site.get_year()):
-            early_deploys = (site.get_years_remaining() > site.shop.thresholds['no deploy']) ###
-            
+        deploys = (site.get_years_remaining() > site.shop.thresholds['no deploy'])
+        if site.contract.is_replaceable_year(site.get_year()) and deploys:           
             # check if FRUs need to be repaired
             if site.shop.repair:
                 StopWatch.timer('check repairs')
@@ -247,45 +261,34 @@ class Inspector:
     def check_deploys(site, commitments):
         lookahead = site.get_months_remaining()
 
-        # estimate final CTMO if FRUs degrade as expected and add FRUs if needed, with padding
-        StopWatch.timer('get expected CTMO')
-        expected_ctmo = (site.get_energy_produced() + site.get_energy_remaining()) / (site.contract.length * 12) / site.system_size
-        StopWatch.timer('get expected CTMO')
-
         ## CHECK IF THERE WILL BE CEILING LOSS?
 
-        # check PTMO
-        expected_ptmo = site.get_site_power(lookahead=lookahead)
+        # estimate final PTMO if FRUs degrade as expected and add FRUs if needed, with padding
+        expected_ptmo = site.get_site_power(lookahead=lookahead) / site.system_size
         if Inspector.check_fail(site, expected_ptmo, site.limits['PTMO'] + site.shop.thresholds['tmo pad']):
-            additional_power = site.limits['PTMO'] + site.shop.thresholds['tmo pad'] - expected_ptmo
+            additional_power = (site.limits['PTMO'] + site.shop.thresholds['tmo pad'] - expected_ptmo) * site.system_size
             server_dp, enclosure_dp = Inspector.get_worst_fru(site, 'power')
-            if server_dp and enclosure_dp:
-                power_pulled = site.servers[server_dp].enclosures[enclosure_dp].get_power(lookahead)
-                power_needed = additional_power - power_pulled
+
+            if (server_dp is not None) and (enclosure_dp is not None):
+                power_pulled = site.servers[server_dp].enclosures[enclosure_dp].get_power(lookahead=lookahead)
+                power_needed = additional_power + power_pulled
 
                 new_fru = site.shop.get_best_fit_fru(site.server_model, site.get_date(), site.number, server_dp, enclosure_dp,
                                         power_needed=power_needed, time_needed=lookahead)
 
-                # there is a FRU that meets ceiling loss requirements
-                if new_fru is not None:
+                site.replace_and_balance(server_dp, enclosure_dp, new_fru)
 
-                    # swap out old FRU and store if not empty
-                    old_fru = site.replace_fru(server_dp, enclosure_dp, new_fru)
-                    if old_fru is not None:
-                        # FRU replaced an existing module
-                        site.shop.store_fru(old_fru, site.number, server_dp, enclosure_dp)
-                    else:
-                        # FRU was added to empty enclosure, so check for overloading
-                        site.balance_site()
-
-        # check CTMO
+        # estimate final CTMO if FRUs degrade as expected and add FRUs if needed, with padding
+        StopWatch.timer('get expected CTMO')
+        expected_ctmo = (site.get_energy_produced() + site.get_energy_remaining()) / (site.contract.length * 12) / site.system_size
+        StopWatch.timer('get expected CTMO')
         if Inspector.check_fail(site, expected_ctmo, site.limits['CTMO'] + site.shop.thresholds['tmo pad']):
             additional_energy = (site.limits['CTMO'] + site.shop.thresholds['tmo pad']) * site.contract.length * 12 * site.system_size \
                 - (site.get_energy_produced() + site.get_energy_remaining())
             
             server_dc, enclosure_dc = Inspector.get_worst_fru(site, 'energy')
 
-            if server_dc and enclosure_dc:
+            if (server_dc is not None) and (enclosure_dc is not None):
                 # there is an empty enclosure or a FRU can be replaced
                 energy_pulled = site.servers[server_dc].enclosures[enclosure_dc].get_energy(months=lookahead)
                 energy_needed = additional_energy - energy_pulled
@@ -296,16 +299,25 @@ class Inspector:
                 StopWatch.timer('get best fit FRU [early deploy]')
 
                 # there is a FRU that meets ceiling loss requirements
-                if new_fru is not None:
+                site.replace_and_balance(server_dc, enclosure_dc, new_fru)
 
-                    # swap out old FRU and store if not empty
-                    old_fru = site.replace_fru(server_dc, enclosure_dc, new_fru)
-                    if old_fru is not None:
-                        # FRU replaced an existing module
-                        site.shop.store_fru(old_fru, site.number, server_dc, enclosure_dc)
-                    else:
-                        # FRU was added to empty enclosure, so check for overloading
-                        site.balance_site()
+        ## estimate final CTMO if FRUs degrade as expected and add FRUs if needed, with padding
+        #expected_ceff = 0
+        #if Inspector.check_fail(site, expected_ceff, site.limits['Ceff'] + site.shop.thresholds['eff pad']):
+        #    additional_efficiency = site.limits['Ceff'] - expected_ceff
+            
+        #    server_de, enclosure_de = Inspector.get_worst_fru(site, 'efficiency')
+
+        #    if (server_de is not None) and (enclosure_de is not None):
+        #        # there is an empty enclosure or a FRU can be replaced
+        #        energy_pulled = site.servers[server_dc].enclosures[enclosure_dc].get_energy(months=lookahead)
+        #        energy_needed = additional_energy - energy_pulled
+            
+        #        new_fru = site.shop.get_best_fit_fru(site.server_model, site.get_date(), site.number, server_dc, enclosure_dc,
+        #                                             efficiency_needed=energy_needed, time_needed=lookahead)
+
+        #        # there is a FRU that meets ceiling loss requirements
+        #        site.replace_and_balance(server_de, enclosure_de, new_fru)
 
         StopWatch.timer('store_performance')
         commitments, fails = site.store_performance()

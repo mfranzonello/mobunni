@@ -187,11 +187,12 @@ class ExcelePaint:
                   'date': 'mm/yyyy'}
 
     def get_paints(windowed, inputs, performance, costs, power, efficiency, transactions):
-        ranges = ExcelePaint.ranges
+        ranges = ExcelePaint.ranges.copy()
+
         if not windowed:
             ranges.pop('W')
 
-        columns = {'percent': ['{}{}{}'.format(r, v, b) for v in ExcelePaint.percent_values for r in ExcelePaint.ranges for b in ExcelePaint.bounds],
+        columns = {'percent': ['{}{}{}'.format(r, v, b) for v in ExcelePaint.percent_values for r in ranges for b in ExcelePaint.bounds],
                    'comma': ['{}{}'.format(v, b) for v in ExcelePaint.comma_values for b in ExcelePaint.bounds],
                    'date': ExcelePaint.date_values}
 
@@ -199,7 +200,7 @@ class ExcelePaint:
 
         data = ExcelePaint._get_data(inputs, performance, costs, power, efficiency, transactions)
         formats = ExcelePaint._get_formats(windowed, styles)
-        charts = ExcelePaint._get_charts(windowed, performance, columns['percent'])
+        charts = ExcelePaint._get_charts(windowed, performance, columns['percent'], ranges)
 
         return data, formats, charts
 
@@ -216,9 +217,9 @@ class ExcelePaint:
 
         return formats
 
-    def _get_charts(windowed, performance, chart_columns):
-        chart_colors = [ExcelePaint.ranges[r] for v in ExcelePaint.percent_values for r in ExcelePaint.ranges for b in ExcelePaint.bounds]
-        chart_dashes = [ExcelePaint.bounds[b] for v in ExcelePaint.percent_values for r in ExcelePaint.ranges for b in ExcelePaint.bounds]
+    def _get_charts(windowed, performance, chart_columns, ranges):
+        chart_colors = [ranges[r] for v in ExcelePaint.percent_values for r in ranges for b in ExcelePaint.bounds]
+        chart_dashes = [ExcelePaint.bounds[b] for v in ExcelePaint.percent_values for r in ranges for b in ExcelePaint.bounds]
         chart_y_axis = {'max': 1.0, 'min': floor(10*performance[chart_columns].min().min())/10}
         charts = [{'sheetname': 'performance', 'columns': chart_columns, 'colors': chart_colors, 'dashes': chart_dashes,
                    'chart sheet name': 'graph', 'y-axis': chart_y_axis}]

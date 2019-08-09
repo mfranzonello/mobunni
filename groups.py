@@ -101,6 +101,7 @@ class Thresholds(Group):
                      ['years before end of contract to early deploy', self.thresholds.get('early deploy')],
                      ['years before end of contract cannot deploy', self.thresholds.get('no deploy')],
                      ['early deploy target TMO padding', self.thresholds.get('tmo pad')],
+                     ['early deploy target efficiency padding', self.thresholds.get('eff pad')],
                      ['process time for FRU redeployment', self.thresholds.get('deploy months')],
                      ]
 

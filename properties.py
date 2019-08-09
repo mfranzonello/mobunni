@@ -18,10 +18,10 @@ class Site:
         self.contract = contract
         self.system_size = 0
 
-        self.monitor = Monitor(self.number, self.contract.start_date, self.contract.length)
-
         self.limits = contract.limits
         self.windowed = contract.windowed
+
+        self.monitor = Monitor(self.number, self.contract.start_date, self.contract.length, self.windowed)
 
         self.server_model = None
         self.servers = []
@@ -85,8 +85,8 @@ class Site:
         self.servers.append(server)
 
     # current power output of all frus on site
-    def get_fru_power(self):
-        fru_power = DataFrame(data=[[enclosure.fru.get_power() if enclosure.is_filled() else 0 \
+    def get_fru_power(self, lookahead=None):
+        fru_power = DataFrame(data=[[enclosure.fru.get_power(lookahead=lookahead) if enclosure.is_filled() else 0 \
             for enclosure in server.enclosures] for server in self.servers])
 
         return fru_power
@@ -94,7 +94,7 @@ class Site:
     # current overall power output of site
     def get_site_power(self, lookahead=None):
         # find potential power output of frus at each server
-        site_power = sum([server.get_power(lookahead) for server in self.servers])
+        site_power = sum([server.get_power(lookahead=lookahead) for server in self.servers])
         
         #self.get_fru_power().sum('columns')
         
@@ -291,6 +291,19 @@ class Site:
 
             # see if more swaps can be made
             balanceable, server_over, enclosure_over, server_under, enclosure_under = Inspector.is_balanceable(self)
+
+    def replace_and_balance(self, server_n, enclosure_n, new_fru):
+        # there is a FRU that meets ceiling loss requirements
+        if new_fru is not None:
+
+            # swap out old FRU and store if not empty
+            old_fru = self.replace_fru(server_n, enclosure_n, new_fru)
+            if old_fru is not None:
+                # FRU replaced an existing module
+                self.shop.store_fru(old_fru, self.number, server_n, enclosure_n)
+            else:
+                # FRU was added to empty enclosure, so check for overloading
+                self.balance_site()
         
     # store performance at FRU and site level
     def store_performance(self):

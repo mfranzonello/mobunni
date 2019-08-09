@@ -50,33 +50,39 @@ class FRU:
         self.efficiency_curve = efficiency_curve
         self.max_efficiency = efficiency_curve[0]
 
+    # month to look at
+    def _get_month(self, lookahead=None):
+        if lookahead is None:
+            lookahead = 0
+        month = self.month + lookahead
+        return month
+
     # power at current degradation level
-    def get_power(self, ideal=False):
-        if self.is_dead():
+    def get_power(self, ideal=False, lookahead=None):
+        if self.is_dead(lookahead=lookahead):
             power = 0
+
         else:
+            month = self._get_month(lookahead=lookahead)
+
             if ideal:
-                power = self.ideal_curve[self.month]
+                curve = self.ideal_curve
+            elif lookahead:
+                curve = self.get_expected_curve()
             else:
-                power = self.power_curve[self.month]
-        
+                curve = self.power_curve
+
+            if month in curve:
+                power = curve[month]
+            else:
+                power = 0
+      
         return power
-
-    # estimate the power looking ahead a number of months
-    def get_expected_power(self, months=0):
-        curve = self.get_expected_curve()
-        lookahead_month = self.month + months
-        if len(curve) < lookahead_month:
-            expected_power = 0
-        else:
-            expected_power = curve[lookahead_month]
-
-        return expected_power
 
     # estimate the power curve in deployed FRU
     def get_expected_curve(self):
-        curve = self.power_curves.get_expected_curve(self.month, self.get_power())
-        curve.index = range(len(curve))
+        curve = self.power_curve ## CHEATING
+        ##curve = self.power_curves.get_expected_curve(self.month, self.get_power())
         return curve
 
     # estimate the remaining energy in deployed FRU
@@ -86,19 +92,21 @@ class FRU:
         return energy
 
     # get efficiency of FRU
-    def get_efficiency(self):
-        efficiency = self.efficiency_curve[min(self.month, len(self.efficiency_curve)-1)]
+    def get_efficiency(self, lookahead=None):
+        month = self._get_month(lookahead=lookahead)
+        efficiency = self.efficiency_curve[min(month, len(self.efficiency_curve)-1)]
         return efficiency
 
     # estimated months left of FRU life
     def get_expected_life(self):
         curve = self.get_expected_curve()
-        life = len(curve)
+        life = len(curve) - self.month - 1
         return life
 
     # FRU is too old for use
-    def is_dead(self):
-        dead = self.month >= len(self.power_curve)
+    def is_dead(self, lookahead=None):
+        month = self._get_month(lookahead=lookahead)
+        dead = month > len(self.power_curve)
         return dead
 
     # determine if the power module has degraded already
@@ -186,10 +194,8 @@ class Enclosure:
     def get_power(self, lookahead=None):
         if self.is_empty():
             power = 0
-        elif lookahead:
-            power = min(self.rating, self.fru.get_expected_power(lookahead))
         else:
-            power = min(self.rating, self.fru.get_power())
+            power = min(self.rating, self.fru.get_power(lookahead=lookahead))
 
         return power
 
@@ -237,12 +243,12 @@ class Server:
 
     # return array of FRU powers
     def get_fru_power(self, lookahead=None):
-        fru_power = [enclosure.get_power(lookahead) for enclosure in self.enclosures]
+        fru_power = [enclosure.get_power(lookahead=lookahead) for enclosure in self.enclosures]
         return fru_power
 
     # get total power of all FRUs, capped at nameplate rating
     def get_power(self, cap=True, lookahead=None):
-        power = sum(self.get_fru_power(lookahead))
+        power = sum(self.get_fru_power(lookahead=lookahead))
         if cap:
             power = min(self.nameplate, power)
 
