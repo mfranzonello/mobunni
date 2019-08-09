@@ -34,7 +34,7 @@ class Monitor:
         power_eff = DataFrame(columns=['date'])
         power_eff.loc[:, 'date'] = self.contract_date_range
 
-        reindex = ['date'] + ['ES{}|{}'.format(s_n, e_n) \
+        reindex = ['date'] + ['TOTAL'] + ['ES{}|{}'.format(s_n, e_n) \
             for s_n in range(len(servers)) \
             for e_n in ['ENC{}'.format(f_n) for f_n in range(len(servers[s_n].enclosures))] + ceiling]
 

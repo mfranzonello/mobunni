@@ -320,6 +320,7 @@ class Site:
 
         power = self.get_site_power()
         self.monitor.store_result('performance', 'power', self.month, power)
+        self.monitor.store_result('power', 'TOTAL', self.month, power)
 
         ctmo_adj = self.contract.start_month/(self.month+1)
         ctmo = (self.monitor.get_result('performance', 'power', self.month, function='mean') / self.system_size)*(1-ctmo_adj) + \
@@ -338,6 +339,7 @@ class Site:
         efficiency = self.get_site_efficiency()
         fuel = self.monitor.get_result('performance', 'power', self.month) / efficiency if efficiency else 0
         self.monitor.store_result('performance', 'fuel', self.month, fuel)
+        self.monitor.store_result('efficiency', 'TOTAL', self.month, efficiency)
 
         total_fuel = self.monitor.get_result('performance', 'fuel', self.month, function='sum')
         ceff = self.monitor.get_result('performance', 'power', self.month, function='sum') / total_fuel if total_fuel else 0

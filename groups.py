@@ -10,7 +10,7 @@ class Group:
         self.data = None
 
     def get_inputs(self):
-        inputs = DataFrame(columns=['Input', 'Value'], data=self.data)
+        inputs = DataFrame(columns=['input', 'value'], data=self.data)
 
         return inputs
 

@@ -175,12 +175,8 @@ class Simulation:
             # store results
             self.append_summaries(fleet)
 
-    # summarize results of all simulations
-    def get_results(self):
-        # return results of simulation runs
-        print('Consolidating results')
-
-        # average the run performance
+    # average the run performance
+    def get_site_performance(self):
         performance = concat(self.site_performance)
         drops = ['site', 'year']
         if self.scenario.windowed:
@@ -193,19 +189,53 @@ class Simulation:
         site_performance = performance_mean\
             .merge(performance_max, on='date', suffixes=['', '_max'])\
             .merge(performance_min, on='date', suffixes=['', '_min'])
-       
-        # average the run costs
+
+        return site_performance
+
+    # average the run costs
+    def get_costs(self):
         costs = concat(self.costs)
         cost_summary = costs[costs['target']].drop('target', axis='columns').groupby(['year', 'action']).mean().reset_index()
-        cost_summary_dollars = cost_summary.pivot(index='year', columns='action', values='service cost').reset_index()
-        cost_summary_quants = cost_summary.pivot(index='year', columns='action', values='count').reset_index()
+
+        cost_summary_dollars = self.pivot_and_total(cost_summary, 'year', 'action', 'service cost', yearly=True)
+        cost_summary_quants = self.pivot_and_total(cost_summary, 'year', 'action', 'count', yearly=False)
+       
         cost_tables = [cost_summary_dollars, cost_summary_quants]
-      
-        # pull the last FRU performance
+
+        return cost_tables
+
+    # pivot and get cost totals
+    def pivot_and_total(self, costs, index, columns, values, yearly=False):
+        cost_table = costs.pivot(index=index, columns=columns, values=values)
+
+        if yearly:
+            cost_table.loc[:, 'total'] = cost_table.sum('columns')
+        cost_table.loc['total', :] = cost_table.sum('rows')
+        cost_table = cost_table.fillna(0).reset_index()
+
+        return cost_table
+
+    # pull the last FRU performance
+    def get_fru_performance(self):
         fru_power_sample = self.fru_performance[-1]['power'].drop('site', axis='columns')
         fru_efficiency_sample = self.fru_performance[-1]['efficiency'].drop('site', axis='columns')
 
-        # pull last transaction log 
+        return fru_power_sample, fru_efficiency_sample
+
+    # pull last transaction log 
+    def get_transactions(self):
         transaction_sample = self.transactions[-1]
+
+        return transaction_sample
+
+    # summarize results of all simulations
+    def get_results(self):
+        # return results of simulation runs
+        print('Consolidating results')
+
+        site_performance = self.get_site_performance()
+        cost_tables = self.get_costs()
+        fru_power_sample, fru_efficiency_sample = self.get_fru_performance()
+        transaction_sample = self.get_transactions()
 
         return self.inputs, site_performance, cost_tables, fru_power_sample, fru_efficiency_sample, transaction_sample

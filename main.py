@@ -67,7 +67,8 @@ def save_results(project, scenario, simulation):
     excelerator = Excelerator(path=None, filename='bpm_results_{}_{}'.format(project.name, scenario.name), extension='xlsx')
     
     # assemble output
-    data, formats, charts = ExcelePaint.get_paints(scenario.windowed, inputs, site_performance, costs, fru_power, fru_efficiency, transactions)
+    data, formats, charts = ExcelePaint.get_paints(scenario.windowed, scenario.commitments.limits, inputs,
+                                                   site_performance, costs, fru_power, fru_efficiency, transactions)
     excelerator.store_data(data)
     excelerator.store_formats(formats)
     excelerator.store_charts(charts)
