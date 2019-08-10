@@ -124,8 +124,8 @@ class Inspector:
         return balanceable, server_over, enclosure_over, server_under, enclosure_under
 
     # check if a commitment is missed
-    def check_fail(site, value, limit):
-        fail = (limit is not None) and (value < limit)
+    def check_fail(site, value, limit, pad=0):
+        fail = (limit is not None) and (value < limit + pad)
         return fail
 
     # check if commitments are missed
@@ -202,7 +202,7 @@ class Inspector:
 
         # check if FRUs can be replaced this year
         deploys = (site.get_years_remaining() > site.shop.thresholds['no deploy'])
-        if site.contract.is_replaceable_year(site.get_year()) and deploys:           
+        if site.contract.is_replaceable_year(site.get_year()) and deploys:
             # check if FRUs need to be repaired
             if site.shop.repair:
                 StopWatch.timer('check repairs')
@@ -265,7 +265,7 @@ class Inspector:
 
         # estimate final PTMO if FRUs degrade as expected and add FRUs if needed, with padding
         expected_ptmo = site.get_site_power(lookahead=lookahead) / site.system_size
-        if Inspector.check_fail(site, expected_ptmo, site.limits['PTMO'] + site.shop.thresholds['tmo pad']):
+        if Inspector.check_fail(site, expected_ptmo, site.limits['PTMO'], pad=site.shop.thresholds['tmo pad']):
             additional_power = (site.limits['PTMO'] + site.shop.thresholds['tmo pad'] - expected_ptmo) * site.system_size
             server_dp, enclosure_dp = Inspector.get_worst_fru(site, 'power')
 
@@ -282,7 +282,7 @@ class Inspector:
         StopWatch.timer('get expected CTMO')
         expected_ctmo = (site.get_energy_produced() + site.get_energy_remaining()) / (site.contract.length * 12) / site.system_size
         StopWatch.timer('get expected CTMO')
-        if Inspector.check_fail(site, expected_ctmo, site.limits['CTMO'] + site.shop.thresholds['tmo pad']):
+        if Inspector.check_fail(site, expected_ctmo, site.limits['CTMO'], pad=site.shop.thresholds['tmo pad']):
             additional_energy = (site.limits['CTMO'] + site.shop.thresholds['tmo pad']) * site.contract.length * 12 * site.system_size \
                 - (site.get_energy_produced() + site.get_energy_remaining())
             
@@ -292,7 +292,7 @@ class Inspector:
                 # there is an empty enclosure or a FRU can be replaced
                 energy_pulled = site.servers[server_dc].enclosures[enclosure_dc].get_energy(months=lookahead)
                 energy_needed = additional_energy - energy_pulled
-            
+           
                 StopWatch.timer('get best fit FRU [early deploy]')
                 new_fru = site.shop.get_best_fit_fru(site.server_model, site.get_date(), site.number, server_dc, enclosure_dc,
                                                      energy_needed=energy_needed, time_needed=lookahead)
@@ -303,7 +303,7 @@ class Inspector:
 
         ## estimate final CTMO if FRUs degrade as expected and add FRUs if needed, with padding
         #expected_ceff = 0
-        #if Inspector.check_fail(site, expected_ceff, site.limits['Ceff'] + site.shop.thresholds['eff pad']):
+        #if Inspector.check_fail(site, expected_ceff, site.limits['Ceff'], pad=site.shop.thresholds['eff pad']):
         #    additional_efficiency = site.limits['Ceff'] - expected_ceff
             
         #    server_de, enclosure_de = Inspector.get_worst_fru(site, 'efficiency')
@@ -391,6 +391,7 @@ class Inspector:
         else:
             # put in a brand new FRU
             new_fru = site.shop.get_best_fit_fru(server.model, site.get_date(), site.number, server_e, enclosure_e, initial=True)
+
             site.replace_fru(server_e, enclosure_e, new_fru)
             
             # FRU was added to empty enclosure, so check for overloading

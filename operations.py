@@ -259,7 +259,8 @@ class Shop:
             (powers.where(powers > 0) if power_needed > 0 else 1) * \
             (powers.where(powers < (max_power - power_needed)) if max_power is not None else 1) * \
             (energies.where(energies > 0)/time_needed if energy_needed > 0 else 1)
-        queue = found.idxmin() if len(found) else nan
+
+        queue = found.idxmin() if (type(found) is Series) and len(found) else nan
 
         return queue
 
@@ -306,9 +307,10 @@ class Shop:
     def get_best_fit_fru(self, server_model, install_date, site_number, server_number, enclosure_number,
                          power_needed=0, energy_needed=0, time_needed=0, max_power=None, initial=False):
         allowed_modules = self.sql_db.get_compatible_modules(server_model)
-        
+       
         junked = {'deployable': False} ##, 'junked': True}
         queues = {}
+
         for location in junked:
             powers = self.list_powers(allowed_modules, junked[location])
             energies = self.list_energies(allowed_modules, time_needed, junked[location])
@@ -381,7 +383,6 @@ class Shop:
             server_model_number, server_count = server_nameplates.sort_values('loss')[['model_number', 'fit']].iloc[0]
 
         return server_model_number, server_count
-
 
     # create a new energy server
     def create_server(self, site_number, server_number, server_model_number=None, server_model_class=None, nameplate_needed=0):

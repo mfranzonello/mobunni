@@ -121,7 +121,7 @@ class FRU:
 
     # determine if a FRU needs to be repaired
     def is_deviated(self, threshold=0):
-        if self.is_dead():
+        if self.is_dead() or (self.get_power() == 0):
             # FRU is at end of life and unrepairable
             deviated = False
         else:
