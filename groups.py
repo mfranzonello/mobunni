@@ -98,7 +98,6 @@ class Thresholds(Group):
         self.data = [['min power degradation when FRUs can be pulled', self.thresholds.get('degraded')],
                      ['min efficiency degradation when FRUs can be repaired', self.thresholds.get('inefficient')],
                      ['min deviation when FRUs can be repaired', self.thresholds.get('deviated')],
-                     ['years before end of contract to early deploy', self.thresholds.get('early deploy')],
                      ['years before end of contract cannot deploy', self.thresholds.get('no deploy')],
                      ['early deploy target TMO padding', self.thresholds.get('tmo pad')],
                      ['early deploy target efficiency padding', self.thresholds.get('eff pad')],

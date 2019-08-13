@@ -152,11 +152,13 @@ class PowerModules:
         else:
             filtered_modules = filtered_power_modules[filtered_power_modules['energy'] == max_energy]
 
-        module = filtered_modules.iloc[0, :]
-        model = module['model']
-        mark = module['mark']
-
-        return model, mark
+        if len(filtered_modules):
+            # there is at least one model that matches requirements
+            module = filtered_modules.iloc[0, :]
+            model = module['model']
+            mark = module['mark']
+        
+            return model, mark
 
     # find bespoke options for a power module model
     def get_bespokes(self, model, base, install_date):

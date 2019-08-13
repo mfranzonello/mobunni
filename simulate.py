@@ -29,6 +29,12 @@ class Scenario:
         
         return inputs
 
+    def get_years(self):
+        start = self.commitments.start_date.year
+        end = start + self.commitments.length
+        years = list(range(start, end + 1))
+        return years
+
 # sites installed over phases and run for full contracts
 class Simulation:
     def __init__(self, details, scenario, sql_db, thresholds):
@@ -197,21 +203,25 @@ class Simulation:
         costs = concat(self.costs)
         cost_summary = costs[costs['target']].drop('target', axis='columns').groupby(['year', 'action']).mean().reset_index()
 
-        cost_summary_dollars = self.pivot_and_total(cost_summary, 'year', 'action', 'service cost', yearly=True)
-        cost_summary_quants = self.pivot_and_total(cost_summary, 'year', 'action', 'count', yearly=False)
+        cost_years = self.scenario.get_years()
+        cost_summary_dollars = self.pivot_and_total(cost_summary, 'year', 'action', 'service cost', years=cost_years, yearly=True)
+        cost_summary_quants = self.pivot_and_total(cost_summary, 'year', 'action', 'count', years=cost_years, yearly=False)
        
         cost_tables = [cost_summary_dollars, cost_summary_quants]
 
         return cost_tables
 
     # pivot and get cost totals
-    def pivot_and_total(self, costs, index, columns, values, yearly=False):
+    def pivot_and_total(self, costs, index, columns, values, years=None, year_col='year', yearly=False):
         cost_table = costs.pivot(index=index, columns=columns, values=values)
 
         if yearly:
             cost_table.loc[:, 'total'] = cost_table.sum('columns')
         cost_table.loc['total', :] = cost_table.sum('rows')
         cost_table = cost_table.fillna(0).reset_index()
+
+        if years:
+            cost_table = cost_table.set_index(year_col).reindex(years + ['total']).fillna(0).reset_index()
 
         return cost_table
 

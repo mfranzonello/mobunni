@@ -1,6 +1,7 @@
 # tools to record and check if sites are performing to contract specifications
 
-from pandas import DataFrame, date_range
+from pandas import DataFrame, Series, date_range
+from numpy import nan
 
 from debugging import StopWatch
 
@@ -82,46 +83,68 @@ class Monitor:
 # methods to see if a site is performing according to contract
 class Inspector:
     # see if swapping FRUs minimizes ceiling loss
-    def is_balanceable(site):
-        # calculate ceiling loss, headroom and empty enclosures
-        server_ceiling_loss = site.get_server_ceiling_loss()
-        server_headroom = site.get_server_headroom()
-        server_has_empty = site.get_server_has_empty()
-        server_available = [server_headroom[s] if server_has_empty[s] else 0 for s in range(len(server_headroom))]
+    def look_for_balance(site):
+        nameplates = Series([server.nameplate for server in site.servers])
+        fru_powers = site.get_fru_power()
+        server_powers = fru_powers.sum(axis='columns')
 
-        # see if any server is overloaded
-        max_loss = max(server_ceiling_loss)
+        headroom = nameplates - server_powers
+        plus_ones = fru_powers.min('columns') == 0
+        initial_headroom = headroom.where(plus_ones).max()
+        initial_ceiling_loss = (server_powers - nameplates).where(server_powers > nameplates).sum()
+       
+        max_ceiling_loss = site.shop.thresholds.get('ceiling loss', 0)
 
-        # see if any server has room and an empty slot
-        max_room = max(server_available)
+        swaps = {'balanced': (headroom >= max_ceiling_loss).all(),
+                 'balanceable': False,
+                 'balance swap': None,
+                 'headroom swap': None,
+                 'max headroom': initial_headroom}
 
-        # check if there is potential to minimize ceiling loss
-        balanceable = (max_loss > 0) and (max_room > 0)
+        servers = fru_powers.index
+        enclosures = fru_powers.columns
 
-        if balanceable:
-            # start with highest overloaded site
-            server_over = server_ceiling_loss.index(max_loss)
-            # find the highest underloaded site
-            server_under = server_available.index(max_room)
-            # take out smallest module that is greater than or equal to ceiling loss and move to server with an empty slot
-            fru_power = site.servers[server_over].get_fru_power()
-            enclosure_over = fru_power.index(min(fru_power))
-            enclosure_under = site.servers[server_under].get_empty_enclosure()
+        is_balanceable = False
 
-            # check if swapping modules improves ceiling loss
-            ceiling_loss_pre = site.get_site_ceiling_loss()
-            site.swap_frus(server_over, enclosure_over, server_under, enclosure_under)
-            ceiling_loss_post = site.get_site_ceiling_loss()
-            site.swap_frus(server_over, enclosure_over, server_under, enclosure_under)
-            balanceable = ceiling_loss_pre - ceiling_loss_post > 0
+        for server_1 in servers: ## probably a faster way to exit -- or search in descending order
+            for enclosure_1 in enclosures:
+                improvements = fru_powers.loc[server_1, enclosure_1] - fru_powers
+                potentials = improvements.where(improvements > 0).where(improvements < headroom)
+                potentials.loc[server_1, :] = nan
 
-        if not balanceable:
-            server_over = None
-            enclosure_over = None
-            server_under = None
-            enclosure_under = None
+                potentials_unstacked = potentials.unstack().isnull()
 
-        return balanceable, server_over, enclosure_over, server_under, enclosure_under
+                if potentials_unstacked.isnull().all():
+                    enclosure_2, server_2 = [None, None]
+                else:
+                    enclosure_2, server_2 = potentials_unstacked.idxmax()
+
+                    frus_swapped = fru_powers.copy()
+                    fru_power_1 = frus_swapped.loc[server_1, enclosure_1]
+                    fru_power_2 = frus_swapped.loc[server_2, enclosure_2]
+                    frus_swapped.loc[server_1, enclosure_1] = fru_power_2
+                    frus_swapped.loc[server_2, enclosure_2] = fru_power_1
+
+                    final_server_powers = frus_swapped.sum(axis='columns')
+                    final_headroom = nameplates - final_server_powers
+                    final_ceiling_loss = (final_server_powers - nameplates).where(final_server_powers > nameplates).sum()
+
+                    plus_ones = frus_swapped.min('columns') == 0
+                    max_headroom = final_headroom.where(plus_ones).max()
+
+                    is_balanceable = final_ceiling_loss < initial_ceiling_loss
+                    if (not swaps['balanced']) and is_balanceable:
+                        swaps['balanceable'] = is_balanceable
+                        swaps['balance swap'] = [(server_1, enclosure_1), (server_2, enclosure_2)]
+                        initial_ceiling_loss = final_ceiling_loss
+
+                    headroom_improvement = (max_headroom > swaps['max headroom'])
+                    no_additional_loss = (final_headroom.where(final_headroom < max_ceiling_loss, 0) >= headroom.where(headroom < max_ceiling_loss, 0)).all()
+                    if headroom_improvement and no_additional_loss:
+                        swaps['headroom swap'] = [(server_1, enclosure_1), (server_2, enclosure_2)]
+                        swaps['max headroom'] = max_headroom
+
+        return swaps
 
     # check if a commitment is missed
     def check_fail(site, value, limit, pad=0):
@@ -201,8 +224,9 @@ class Inspector:
         commitments, fails = site.store_performance()
 
         # check if FRUs can be replaced this year
-        deploys = (site.get_years_remaining() > site.shop.thresholds['no deploy'])
-        if site.contract.is_replaceable_year(site.get_year()) and deploys:
+        replaceable = site.contract.is_replaceable_year(site.get_year())
+        early_replaceable = site.get_years_remaining() > site.shop.thresholds['no deploy']
+        if replaceable:
             # check if FRUs need to be repaired
             if site.shop.repair:
                 StopWatch.timer('check repairs')
@@ -210,7 +234,7 @@ class Inspector:
                 StopWatch.timer('check repairs')
 
             # check for early deploy opportunity
-            if (site.limits['CTMO'] is not None) and (site.get_years_remaining() <= site.shop.thresholds['early deploy']):
+            if early_replaceable:
                 StopWatch.timer('check early deploy')
                 commitments, fails = Inspector.check_deploys(site, commitments)
                 StopWatch.timer('check early deploy')
@@ -261,63 +285,70 @@ class Inspector:
     def check_deploys(site, commitments):
         lookahead = site.get_months_remaining()
 
-        ## CHECK IF THERE WILL BE CEILING LOSS?
+        # ensure no ceiling loss
+        if site.has_empty():
+            swaps = Inspector.look_for_balance(site)
+            max_power = swaps.get('max headroom')
 
-        # estimate final PTMO if FRUs degrade as expected and add FRUs if needed, with padding
-        expected_ptmo = site.get_site_power(lookahead=lookahead) / site.system_size
-        if Inspector.check_fail(site, expected_ptmo, site.limits['PTMO'], pad=site.shop.thresholds['tmo pad']):
-            additional_power = (site.limits['PTMO'] + site.shop.thresholds['tmo pad'] - expected_ptmo) * site.system_size
-            server_dp, enclosure_dp = Inspector.get_worst_fru(site, 'power')
+        else:
+            max_power = None
 
-            if (server_dp is not None) and (enclosure_dp is not None):
-                power_pulled = site.servers[server_dp].enclosures[enclosure_dp].get_power(lookahead=lookahead)
-                power_needed = additional_power + power_pulled
+        if (max_power is None) or (max_power > 0):
+            # estimate final PTMO if FRUs degrade as expected and add FRUs if needed, with padding
+            expected_ptmo = site.get_site_power(lookahead=lookahead) / site.system_size
+            if Inspector.check_fail(site, expected_ptmo, site.limits['PTMO'], pad=site.shop.thresholds['tmo pad']):
+                additional_power = (site.limits['PTMO'] + site.shop.thresholds['tmo pad'] - expected_ptmo) * site.system_size
+                server_dp, enclosure_dp = Inspector.get_worst_fru(site, 'power')
 
-                new_fru = site.shop.get_best_fit_fru(site.server_model, site.get_date(), site.number, server_dp, enclosure_dp,
-                                        power_needed=power_needed, time_needed=lookahead)
+                if (server_dp is not None) and (enclosure_dp is not None):
+                    power_pulled = site.servers[server_dp].enclosures[enclosure_dp].get_power(lookahead=lookahead)
+                    power_needed = additional_power + power_pulled
 
-                site.replace_and_balance(server_dp, enclosure_dp, new_fru)
+                    new_fru = site.shop.get_best_fit_fru(site.server_model, site.get_date(), site.number, server_dp, enclosure_dp,
+                                            power_needed=power_needed, time_needed=lookahead, max_power=max_power)
 
-        # estimate final CTMO if FRUs degrade as expected and add FRUs if needed, with padding
-        StopWatch.timer('get expected CTMO')
-        expected_ctmo = (site.get_energy_produced() + site.get_energy_remaining()) / (site.contract.length * 12) / site.system_size
-        StopWatch.timer('get expected CTMO')
-        if Inspector.check_fail(site, expected_ctmo, site.limits['CTMO'], pad=site.shop.thresholds['tmo pad']):
-            additional_energy = (site.limits['CTMO'] + site.shop.thresholds['tmo pad']) * site.contract.length * 12 * site.system_size \
-                - (site.get_energy_produced() + site.get_energy_remaining())
+                    site.replace_and_balance(server_dp, enclosure_dp, new_fru)
+
+            # estimate final CTMO if FRUs degrade as expected and add FRUs if needed, with padding
+            StopWatch.timer('get expected CTMO')
+            expected_ctmo = (site.get_energy_produced() + site.get_energy_remaining()) / (site.contract.length * 12) / site.system_size
+            StopWatch.timer('get expected CTMO')
+            if Inspector.check_fail(site, expected_ctmo, site.limits['CTMO'], pad=site.shop.thresholds['tmo pad']):
+                additional_energy = (site.limits['CTMO'] + site.shop.thresholds['tmo pad']) * site.contract.length * 12 * site.system_size \
+                    - (site.get_energy_produced() + site.get_energy_remaining())
             
-            server_dc, enclosure_dc = Inspector.get_worst_fru(site, 'energy')
+                server_dc, enclosure_dc = Inspector.get_worst_fru(site, 'energy')
 
-            if (server_dc is not None) and (enclosure_dc is not None):
-                # there is an empty enclosure or a FRU can be replaced
-                energy_pulled = site.servers[server_dc].enclosures[enclosure_dc].get_energy(months=lookahead)
-                energy_needed = additional_energy - energy_pulled
+                if (server_dc is not None) and (enclosure_dc is not None):
+                    # there is an empty enclosure or a FRU can be replaced
+                    energy_pulled = site.servers[server_dc].enclosures[enclosure_dc].get_energy(months=lookahead)
+                    energy_needed = additional_energy - energy_pulled
            
-                StopWatch.timer('get best fit FRU [early deploy]')
-                new_fru = site.shop.get_best_fit_fru(site.server_model, site.get_date(), site.number, server_dc, enclosure_dc,
-                                                     energy_needed=energy_needed, time_needed=lookahead)
-                StopWatch.timer('get best fit FRU [early deploy]')
+                    StopWatch.timer('get best fit FRU [early deploy]')
+                    new_fru = site.shop.get_best_fit_fru(site.server_model, site.get_date(), site.number, server_dc, enclosure_dc,
+                                                         energy_needed=energy_needed, time_needed=lookahead, max_power=max_power)
+                    StopWatch.timer('get best fit FRU [early deploy]')
 
-                # there is a FRU that meets ceiling loss requirements
-                site.replace_and_balance(server_dc, enclosure_dc, new_fru)
+                    # there is a FRU that meets ceiling loss requirements
+                    site.replace_and_balance(server_dc, enclosure_dc, new_fru)
 
-        ## estimate final CTMO if FRUs degrade as expected and add FRUs if needed, with padding
-        #expected_ceff = 0
-        #if Inspector.check_fail(site, expected_ceff, site.limits['Ceff'], pad=site.shop.thresholds['eff pad']):
-        #    additional_efficiency = site.limits['Ceff'] - expected_ceff
+            ## estimate final CTMO if FRUs degrade as expected and add FRUs if needed, with padding
+            #expected_ceff = 0
+            #if Inspector.check_fail(site, expected_ceff, site.limits['Ceff'], pad=site.shop.thresholds['eff pad']):
+            #    additional_efficiency = site.limits['Ceff'] - expected_ceff
             
-        #    server_de, enclosure_de = Inspector.get_worst_fru(site, 'efficiency')
+            #    server_de, enclosure_de = Inspector.get_worst_fru(site, 'efficiency')
 
-        #    if (server_de is not None) and (enclosure_de is not None):
-        #        # there is an empty enclosure or a FRU can be replaced
-        #        energy_pulled = site.servers[server_dc].enclosures[enclosure_dc].get_energy(months=lookahead)
-        #        energy_needed = additional_energy - energy_pulled
+            #    if (server_de is not None) and (enclosure_de is not None):
+            #        # there is an empty enclosure or a FRU can be replaced
+            #        energy_pulled = site.servers[server_dc].enclosures[enclosure_dc].get_energy(months=lookahead)
+            #        energy_needed = additional_energy - energy_pulled
             
-        #        new_fru = site.shop.get_best_fit_fru(site.server_model, site.get_date(), site.number, server_dc, enclosure_dc,
-        #                                             efficiency_needed=energy_needed, time_needed=lookahead)
+            #        new_fru = site.shop.get_best_fit_fru(site.server_model, site.get_date(), site.number, server_dc, enclosure_dc,
+            #                                             efficiency_needed=energy_needed, time_needed=lookahead, max_power=max_power)
 
-        #        # there is a FRU that meets ceiling loss requirements
-        #        site.replace_and_balance(server_de, enclosure_de, new_fru)
+            #        # there is a FRU that meets ceiling loss requirements
+            #        site.replace_and_balance(server_de, enclosure_de, new_fru)
 
         StopWatch.timer('store_performance')
         commitments, fails = site.store_performance()

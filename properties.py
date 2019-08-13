@@ -86,8 +86,7 @@ class Site:
 
     # current power output of all frus on site
     def get_fru_power(self, lookahead=None):
-        fru_power = DataFrame(data=[[enclosure.fru.get_power(lookahead=lookahead) if enclosure.is_filled() else 0 \
-            for enclosure in server.enclosures] for server in self.servers])
+        fru_power = DataFrame(data=[[enclosure.get_power(lookahead=lookahead) for enclosure in server.enclosures] for server in self.servers])
 
         return fru_power
 
@@ -95,13 +94,6 @@ class Site:
     def get_site_power(self, lookahead=None):
         # find potential power output of frus at each server
         site_power = sum([server.get_power(lookahead=lookahead) for server in self.servers])
-        
-        #self.get_fru_power().sum('columns')
-        
-        # cap server power output at nameplate rating
-        #server_nameplates = self.get_server_nameplates()
-        #max_server_power = server_power.where(server_power<server_nameplates, server_nameplates)
-        #site_power = max_server_power.sum()
 
         return site_power
 
@@ -114,7 +106,10 @@ class Site:
 
     # caculate energy already produced at all servers
     def get_energy_produced(self):
-        ctmo = self.monitor.get_result('performance', 'CTMO', self.month - 1) if self.month > 0 else self.monitor.start_ctmo
+        if self.month > 0:
+            ctmo = self.monitor.get_result('performance', 'CTMO', self.month - 1)
+        else:
+            ctmo = self.monitor.get_starting_cumulative('tmo')
         site_energy = ctmo * self.month * self.system_size 
         return site_energy
 
@@ -170,6 +165,12 @@ class Site:
     def get_server_has_empty(self):
         server_has_empty = [server.has_empty() for server in self.servers]
         return server_has_empty
+
+    # at least one server with at least one empty enclosure
+    def has_empty(self):
+        server_has_empty = self.get_server_has_empty()
+        site_has_empty = any(server_has_empty)
+        return site_has_empty
 
     # power that is lost due to nameplate capacity for site
     def get_site_ceiling_loss(self):
@@ -262,13 +263,22 @@ class Site:
         return
         
     # move FRUs between enclosures
-    def swap_frus(self, server1, enclosure1, server2, enclosure2):
+    def swap_frus(self, server_1, enclosure_1, server_2, enclosure_2):
         # take out first fru
-        fru1 = self.replace_fru(server1, enclosure1, None)
+        fru_1 = self.replace_fru(server_1, enclosure_1, None)
         # swap first fru and second fru
-        fru2 = self.replace_fru(server2, enclosure2, fru1)
+        fru_2 = self.replace_fru(server_2, enclosure_2, fru_1)
         # reinstall second fru
-        self.replace_fru(server1, enclosure1, fru2)
+        self.replace_fru(server_1, enclosure_1, fru_2)
+
+        # record movements
+        if fru_1:
+            self.shop.balance_frus(fru_1, self.number, server_1, enclosure_1, server_2, enclosure_2)
+
+        if fru_2:
+            self.shop.balance_frus(fru_2, self.number, server_2, enclosure_2, server_1, enclosure_1)
+
+        return fru_1, fru_2
 
     # swap FRU and send old one to shop (if not empty)
     def replace_fru(self, server_number, enclosure_number, fru):
@@ -277,20 +287,13 @@ class Site:
 
     # move FRUs around to minimize ceiling loss
     def balance_site(self):
-        # check balance
-        balanceable, server_over, enclosure_over, server_under, enclosure_under = Inspector.is_balanceable(self)
-        
-        # if there is a potential for intersite redeploy, move FRUs
-        while balanceable:
-            # move FRUs to minimize ceiling loss
-            fru = self.replace_fru(server_over, enclosure_over, None)
-            self.replace_fru(server_under, enclosure_under, fru)
-            
-            # record transaction
-            self.shop.balance_frus(fru, self.number, server_over, enclosure_over, server_under, enclosure_under)
+        swaps = Inspector.look_for_balance(self)
 
-            # see if more swaps can be made
-            balanceable, server_over, enclosure_over, server_under, enclosure_under = Inspector.is_balanceable(self)
+        if (not swaps['balanced']) and swaps['balanceable']:
+            [(server_1, enclosure_1), (server_2, enclosure_2)] = swaps['balance swap']
+
+            # swap frus
+            fru_1, fru_2 = self.swap_frus(server_1, enclosure_1, server_2, enclosure_2)
 
     def replace_and_balance(self, server_n, enclosure_n, new_fru):
         # there is a FRU that meets ceiling loss requirements
@@ -301,9 +304,9 @@ class Site:
             if old_fru is not None:
                 # FRU replaced an existing module
                 self.shop.store_fru(old_fru, self.number, server_n, enclosure_n)
-            else:
-                # FRU was added to empty enclosure, so check for overloading
-                self.balance_site()
+            
+            # FRU was added to empty enclosure, so check for overloading
+            self.balance_site()
         
     # store performance at FRU and site level
     def store_performance(self):
