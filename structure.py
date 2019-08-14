@@ -76,7 +76,7 @@ class SQLDB:
         if (target_model is not None) and (target_model in server_models['model'].to_list()):
             server_model = target_model
         else:
-            server_model = server_model['model'].iloc[0]
+            server_model = server_models['model'].iloc[0]
 
         return server_model
 
@@ -136,10 +136,18 @@ class SQLDB:
         return bespokes
 
     # select default server sizes
-    def get_server_nameplates(self, server_model_class):
-        sql = 'SELECT model_number, nameplate FROM Server WHERE standard IS 1'
+    def get_server_nameplates(self, server_model_class, target_size):
+        sql = 'SELECT model_number, nameplate, standard FROM Server WHERE nameplate <= {}'.format(target_size)# WHERE standard IS 1'
         server_details = read_sql(sql, self.connection)
-        server_nameplates = server_details.sort_values('nameplate', ascending=False)
+
+        if (server_details['standard'] == 1).any():
+            # return standard servers only if target size is available
+            server_details = server_details[server_details['standard'] == 1]
+        else:
+            server_details = server_details.groupby('nameplate').first().reset_index()
+
+        server_nameplates = server_details.drop('standard', axis='columns').sort_values('nameplate', ascending=False)
+
         return server_nameplates
 
     # select server model based on model number or model class + nameplate
@@ -196,9 +204,12 @@ class SQLDB:
             buildable_modules = buildable_modules[buildable_modules['model'].isin(filtered)]
 
         if allowed is not None:
-            buildable_modules = buildable_modules[\
+            allowed_filter = \
                 buildable_modules['model'].isin(allowed['model']) &\
-                buildable_modules['mark'].isin(allowed['mark'])]
+                buildable_modules['mark'].isin(allowed['mark'])
+            if allowed_filter.any():
+                # only limit when allowables are buildable
+                buildable_modules = buildable_modules[allowed_filter]
 
         return buildable_modules
 

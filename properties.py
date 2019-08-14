@@ -180,13 +180,11 @@ class Site:
     # add FRUs to site
     def populate(self, new_servers=None, existing_servers=None):
         # servers already exist
-        if existing_servers is not None: #len(existing_servers.get('df')):
-            self.server_model = self.shop.get_server_model(existing_servers['model'])
+        if existing_servers is not None:
             self.populate_existing(existing_servers)
             
         # servers are new
-        elif new_servers is not None:
-            self.server_model = self.shop.get_server_model(new_servers['model'])
+        else:
             self.populate_new(new_servers)
 
         # prepare log book storage
@@ -228,12 +226,15 @@ class Site:
             
         # set system size
         self.system_size = self.contract.target_size
+        # set server model
+        self.server_model = self.shop.get_server_model(existing_servers['model'])
 
     # add new FRUs to site
     def populate_new(self, new_servers):
         # no existing FRUs, start site from scratch
         # divide power needed by server nameplate to determine number of servers needed
         server_model_number, servers_needed = self.shop.prepare_servers(new_servers, self.contract.target_size)
+        self.server_model = self.shop.get_server_model(server_model_number)
 
         # add servers needed to hit target size
         for server_number in range(servers_needed):
@@ -250,7 +251,7 @@ class Site:
                                                  power_needed=power_needed, initial=True)
                 self.replace_fru(server_number, enclosure_number, fru)
 
-        self.system_size = self.get_system_size()       
+        self.system_size = self.get_system_size()    
        
     # return usable FRUs at end of contract
     def decommission(self):

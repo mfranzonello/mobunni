@@ -362,7 +362,7 @@ class Shop:
     # get model types to most closely match target size
     def prepare_servers(self, new_servers, target_size):
         # check if server model number is given
-        if len(new_servers['model']):
+        if (new_servers is not None) and (len(new_servers['model'])):
             # get values from database
             server_model_number = new_servers['model']
             server_model = self.sql_db.get_server_model(new_servers['model'])
@@ -370,10 +370,11 @@ class Shop:
 
         else:
             # check if server model class is available in given year, else use next best
-            latest_server_model_class = self.sql_db.get_latest_server_model(self.date, target_model=new_servers['model'])
+            target_model = new_servers['model'] if new_servers is not None else None
+            latest_server_model_class = self.sql_db.get_latest_server_model(self.date, target_model=target_model)
         
             # get default nameplate sizes   
-            server_nameplates = self.sql_db.get_server_nameplates(latest_server_model_class)
+            server_nameplates = self.sql_db.get_server_nameplates(latest_server_model_class, target_size)
 
             # determine max number of various size servers could fit
             server_nameplates.loc[:, 'fit'] = (target_size / server_nameplates['nameplate']).astype(int)

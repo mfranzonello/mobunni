@@ -75,7 +75,8 @@ class Simulation:
     # create a site at the beginning of a phase
     def set_up_site(self, fleet, month):
         site_number = len(fleet.sites)
-        print('Constructing site {}'.format(site_number+1), end='')
+        is_target = ' (TARGET)' if site_number == fleet.target_site else ''
+        print('Constructing site {}{}'.format(site_number+1, is_target), end='')
 
         # pick site size according to distribution for all but one specific site
         site_size = fleet.install_sizes[site_number]
@@ -101,7 +102,7 @@ class Simulation:
             site.populate(existing_servers=self.scenario.technology.existing_servers)
         else:
             # build site from scratch
-            site.populate(new_servers=self.scenario.technology.new_servers)
+            site.populate(new_servers=self.scenario.technology.new_servers if (site_number == fleet.target_site) else None)
 
         return site
 
@@ -166,7 +167,6 @@ class Simulation:
                         
                 for site in fleet.sites:
                     # check site status and move FRUs as required
-                    ##print('Inspecting site {}'.format(site.number + 1))
                     decommissioned = self.inspect_site(fleet, site)
 
                     if decommissioned:
@@ -180,6 +180,13 @@ class Simulation:
 
             # store results
             self.append_summaries(fleet)
+            
+            # print simulation update
+            cost_dollars, cost_quants = self.get_costs(last=True)
+            print('Cost $')
+            print(cost_dollars)
+            print('Cost #')
+            print(cost_quants)
 
     # average the run performance
     def get_site_performance(self):
@@ -199,8 +206,12 @@ class Simulation:
         return site_performance
 
     # average the run costs
-    def get_costs(self):
-        costs = concat(self.costs)
+    def get_costs(self, last=False):
+        if last:
+            costs = self.costs[-1].copy()
+        else:
+            costs = concat(self.costs)
+
         cost_summary = costs[costs['target']].drop('target', axis='columns').groupby(['year', 'action']).mean().reset_index()
 
         cost_years = self.scenario.get_years()

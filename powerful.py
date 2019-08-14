@@ -115,50 +115,49 @@ class PowerModules:
     # find best new power module available
     def get_model(self, install_date, power_needed=0, max_power=None, energy_needed=0, time_needed=0, best=False, server_model=None, allowed_fru_models=None):
         StopWatch.timer('get buildable modules [Power Modules]')
-        buildable_modules = self.sql_db.get_buildable_modules(install_date, server_model=server_model, allowed=allowed_fru_models)
+        buildable_modules = self.sql_db.get_buildable_modules(install_date, server_model=server_model, allowed=allowed_fru_models)       
         StopWatch.timer('get buildable modules [Power Modules]')
 
-        StopWatch.timer('filter by rating [Power Modules]')
-        buildable_modules.loc[:, 'rating'] = buildable_modules.apply(lambda x: self.get_rating(x['model'], x['mark']),
-                                                                     axis='columns')
-        StopWatch.timer('filter by rating [Power Modules]')
+        if not buildable_modules.empty:
+            StopWatch.timer('filter by rating [Power Modules]')
+            buildable_modules.loc[:, 'rating'] = buildable_modules.apply(lambda x: self.get_rating(x['model'], x['mark']), axis='columns')
+            StopWatch.timer('filter by rating [Power Modules]')
 
-        StopWatch.timer('filter by energy [Power Modules]')
-        buildable_modules.loc[:, 'energy'] = buildable_modules.apply(lambda x: self.get_energy(x['model'], x['mark'], time_needed),
-                                                                     axis='columns')
-        StopWatch.timer('filter by energy [Power Modules]')
+            StopWatch.timer('filter by energy [Power Modules]')
+            buildable_modules.loc[:, 'energy'] = buildable_modules.apply(lambda x: self.get_energy(x['model'], x['mark'], time_needed), axis='columns')
+            StopWatch.timer('filter by energy [Power Modules]')
         
 
-        # check power requirements
-        max_rating = buildable_modules['rating'].max()
-        if (max_rating >= power_needed) and (not best):
-            # if there is a model big enough to handle the load, choose it
-            filtered_power_modules = buildable_modules[buildable_modules['rating'] >= power_needed]
-        else:
-            # choose the biggest model available
-            filtered_power_modules = buildable_modules[buildable_modules['rating'] == max_rating]
+            # check power requirements
+            max_rating = buildable_modules['rating'].max()
+            if (max_rating >= power_needed) and (not best):
+                # if there is a model big enough to handle the load, choose it
+                filtered_power_modules = buildable_modules[buildable_modules['rating'] >= power_needed]
+            else:
+                # choose the biggest model available
+                filtered_power_modules = buildable_modules[buildable_modules['rating'] == max_rating]
 
-        if max_power is not None:
-            filtered_power_modules = filtered_power_modules[filtered_power_modules['rating'] <= max_power]
+            if max_power is not None:
+                filtered_power_modules = filtered_power_modules[filtered_power_modules['rating'] <= max_power]
 
 
-        # check energy requirements
-        max_energy = buildable_modules['energy'].max()
-        if (max_energy >= energy_needed) and (not best):
-            # if there is a model big enough to handle the load, choose it
-            StopWatch.timer('filter modules by energy needed')
-            filtered_modules = filtered_power_modules[filtered_power_modules['energy'] >= energy_needed]
-            StopWatch.timer('filter modules by energy needed')
-        else:
-            filtered_modules = filtered_power_modules[filtered_power_modules['energy'] == max_energy]
+            # check energy requirements
+            max_energy = buildable_modules['energy'].max()
+            if (max_energy >= energy_needed) and (not best):
+                # if there is a model big enough to handle the load, choose it
+                StopWatch.timer('filter modules by energy needed')
+                filtered_modules = filtered_power_modules[filtered_power_modules['energy'] >= energy_needed]
+                StopWatch.timer('filter modules by energy needed')
+            else:
+                filtered_modules = filtered_power_modules[filtered_power_modules['energy'] == max_energy]
 
-        if len(filtered_modules):
-            # there is at least one model that matches requirements
-            module = filtered_modules.iloc[0, :]
-            model = module['model']
-            mark = module['mark']
+            if len(filtered_modules):
+                # there is at least one model that matches requirements
+                module = filtered_modules.iloc[0, :]
+                model = module['model']
+                mark = module['mark']
         
-            return model, mark
+                return model, mark
 
     # find bespoke options for a power module model
     def get_bespokes(self, model, base, install_date):
