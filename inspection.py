@@ -7,15 +7,18 @@ from debugging import StopWatch
 
 # performance, power and efficiency of a site
 class Monitor:
+    performance_columns = ['site', 'date', 'year',
+                           'power', 'CTMO', 'WTMO', 'PTMO',
+                           'fuel', 'Ceff', 'Weff', 'Peff',
+                           'ceiling loss']
+    power_eff_columns = ['date'] + ['expected PTMO', 'expected CTMO'] + ['total']
+
     def __init__(self, site_number, start_date, contract_length, windowed, start_ctmo=1.0, start_eff=1.0):
         self._starting_cumulative = {'tmo': start_ctmo,
                                      'efficiency': start_eff}
 
         self.contract_date_range = date_range(start=start_date, periods=contract_length*12, freq='MS').date
-        self._performance = DataFrame(columns=['site', 'date', 'year',
-                                              'power', 'CTMO', 'WTMO', 'PTMO',
-                                              'fuel', 'Ceff', 'Weff', 'Peff',
-                                              'ceiling loss'],
+        self._performance = DataFrame(columns=Monitor.performance_columns,
                                     index=range(contract_length*12),
                                     data=0)
 
@@ -35,7 +38,7 @@ class Monitor:
         power_eff = DataFrame(columns=['date'])
         power_eff.loc[:, 'date'] = self.contract_date_range
 
-        reindex = ['date'] + ['TOTAL'] + ['ES{}|{}'.format(s_n, e_n) \
+        reindex = Monitor.power_eff_columns + ['ES{}|{}'.format(s_n, e_n) \
             for s_n in range(len(servers)) \
             for e_n in ['ENC{}'.format(f_n) for f_n in range(len(servers[s_n].enclosures))] + ceiling]
 
@@ -230,24 +233,15 @@ class Inspector:
         if replaceable and early_replaceable:
             # check if FRUs need to be repaired
             if site.shop.repair:
-                StopWatch.timer('check repairs')
                 commitments, fails = site.Inspector.check_repairs(site)
-                StopWatch.timer('check repairs')
 
             # check for early deploy opportunity
-            StopWatch.timer('check early deploy')
             commitments, fails = Inspector.check_deploys(site, commitments, cumulative=early_replaceable, periodic=last_replaceable)
-            StopWatch.timer('check early deploy')
 
             # check for replaceable FRU
             if fails['TMO'] or fails['efficiency']:
-                StopWatch.timer('get worst power FRU')
                 server_p, enclosure_p = Inspector.get_worst_fru(site, 'power')
-                StopWatch.timer('get worst power FRU')
-
-                StopWatch.timer('get worst efficiency FRU')
                 server_e, enclosure_e = Inspector.get_worst_fru(site, 'efficiency')
-                StopWatch.timer('get worst efficiency FRU')
 
             else:
                 server_p = None
@@ -255,13 +249,11 @@ class Inspector:
 
             while (Inspector.check_exists(server_p) and fails['TMO']) or (Inspector.check_exists(server_e) and fails['efficiency']):
                 # replace worst FRUs until TMO threshold hit or exhaustion
-                StopWatch.timer('solve commitments')
                 if Inspector.check_exists(server_p, enclosure_p) and fails['TMO']:
                     commitments, fails, server_p, enclosure_p, server_e, enclosure_e = Inspector.check_tmo(site, commitments, fails, server_p, enclosure_p)
 
                 if Inspector.check_exists(server_e, enclosure_e) and fails['efficiency']:
                     commitments, fails, server_p, enclosure_p, server_e, enclosure_e = Inspector.check_efficiency(site, commitments, server_e, enclosure_e)
-                StopWatch.timer('solve commitments')
 
         return
         
@@ -281,7 +273,7 @@ class Inspector:
 
         return commitments, fails
 
-    # 
+    # check how much power can be installed without ceiling loss for plus ones and if a new FRU exists
     def check_max_power(site, new_fru=False):
         # ensure no ceiling loss if there are plus ones
         max_power = Inspector.look_for_balance(site).get('max headroom') if site.has_empty() else None
@@ -318,6 +310,8 @@ class Inspector:
                 server_dp, enclosure_dp = Inspector.get_worst_fru(site, 'power')
                 max_power, installable = Inspector.check_max_power(site, new_fru=new_fru)
 
+                site.monitor.store_result('power', 'expected PTMO', site.month, expected_ptmo)
+
         # check during any period before no deployments allowed
         if cumulative:
             # estimate final CTMO if FRUs degrade as expected and add FRUs if needed, with padding
@@ -350,6 +344,8 @@ class Inspector:
                 server_dc, enclosure_dc = Inspector.get_worst_fru(site, 'energy')
                 max_power, installable = Inspector.check_max_power(site, new_fru=new_fru)
 
+                site.monitor.store_result('power', 'expected CTMO', site.month, expected_ctmo)
+
             ## estimate final cumulative efficiency if FRUs degrade as expected and add FRUs if needed, with padding
             #expected_ceff = 0
             #if Inspector.check_fail(site, expected_ceff, site.limits['Ceff'], pad=site.shop.thresholds['eff pad']):
@@ -371,20 +367,15 @@ class Inspector:
             #        server_de, enclosure_de = Inspector.get_worst_fru(site, 'efficiency')
             #        max_power, installable = Inspector.check_max_power(site, new_fru=new_fru)
 
-        StopWatch.timer('store_performance')
         commitments, fails = site.store_performance()
-        StopWatch.timer('store_performance')
 
         return commitments, fails
 
     # look for FRU replacements to meet TMO commitments
     def check_tmo(site, commitments, fails, server_p, enclosure_p):
-        StopWatch.timer('get power pulled [TMO]')
         power_pulled = site.servers[server_p].enclosures[enclosure_p].fru.get_power() \
             if site.servers[server_p].enclosures[enclosure_p].is_filled() else 0
-        StopWatch.timer('get power pulled [TMO]')
 
-        StopWatch.timer('get power needed [TMO]')
         if fails['CTMO']:
             power_needed = ((site.limits['CTMO'] - commitments['CTMO']) * site.system_size + power_pulled) * site.month
             reason_fail = 'CTMO'
@@ -396,13 +387,10 @@ class Inspector:
         elif fails['PTMO']:
             power_needed = (site.limits['PTMO'] - commitments['PTMO']) * site.system_size + power_pulled
             reason_fail = 'PTMO'
-        StopWatch.timer('get power needed [TMO]')
 
-        StopWatch.timer('get best fit [TMO]')
         reason = '{} {:0.02%} below limit {:0.02%}'.format(reason_fail, commitments[reason_fail], site.limits[reason_fail])
         new_fru = site.shop.get_best_fit_fru(site.server_model, site.get_date(), site.number, server_p, enclosure_p,
                                              power_needed=power_needed, reason=reason)
-        StopWatch.timer('get best fit [TMO]')
         
         # swap out old FRU and store if not empty
         old_fru = site.replace_fru(server_p, enclosure_p, new_fru)
@@ -412,14 +400,10 @@ class Inspector:
             site.shop.store_fru(old_fru, site.number, server_p, enclosure_p, reason=reason)
         else:
             # FRU was added to empty enclosure, so check for overloading
-            StopWatch.timer('balance_site [TMO]')
             site.balance_site()
-            StopWatch.timer('balance_site [TMO]')
 
         # find next worst FRU
-        StopWatch.timer('check worst FRU [TMO]')
         commmitments, fails, server_p, enclosure_p, server_e, enclosure_e = Inspector.check_worst_fru(site)
-        StopWatch.timer('check worst FRU [TMO]')
 
         return commmitments, fails, server_p, enclosure_p, server_e, enclosure_e
 

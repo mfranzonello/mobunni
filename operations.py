@@ -333,12 +333,11 @@ class Shop:
         else:
             # there is not a FRU available, so create a new one
             if self.best:
-                StopWatch.timer('get_model [best fit FRU]')
                 module = self.power_modules.get_model(install_date,
                                                       power_needed=power_needed, max_power=max_power,
                                                       energy_needed=energy_needed, time_needed=time_needed,
                                                       best=self.best, server_model=server_model, allowed_fru_models=self.allowed_fru_models)
-                StopWatch.timer('get_model [best fit FRU]')
+
             else:
                 module = self.power_modules.get_model(install_date,
                                                       power_needed=power_needed, max_power=max_power,

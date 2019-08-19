@@ -119,10 +119,8 @@ class Simulation:
             decommissioned = True
         else:
             # check TMO, efficiency, repairs and other site statuses
-            StopWatch.timer('check site [simulate]')
             site.check_site()
-            StopWatch.timer('check site [simulate]')
-                                               
+
             # degrade FRUs and continue contract
             site.degrade()
 
@@ -158,9 +156,7 @@ class Simulation:
 
                 # install site at sampled months
                 for site_n in range(fleet.get_install_count(month)):
-                    StopWatch.timer('set up site [simulate]')
                     site = self.set_up_site(fleet, month)
-                    StopWatch.timer('set up site [simulate]')
 
                     fleet.add_site(site)
 
