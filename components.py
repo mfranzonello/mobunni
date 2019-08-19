@@ -81,8 +81,7 @@ class FRU:
 
     # estimate the power curve in deployed FRU
     def get_expected_curve(self):
-        curve = self.power_curve ## CHEATING
-        ##curve = self.power_curves.get_expected_curve(self.month, self.get_power())
+        curve = self.power_curves.get_expected_curve(self.month, self.get_power())
         return curve
 
     # estimate the remaining energy in deployed FRU
@@ -256,12 +255,13 @@ class Server:
 
     # estimate the remaining energy in server FRUs
     def get_energy(self, months=None):
-        curves = concat([enclosure.fru.get_expected_curve() for enclosure in self.enclosures \
-            if enclosure.is_filled() and not enclosure.fru.is_dead()], axis='columns') 
+        curves = concat([enclosure.fru.get_expected_curve()[enclosure.fru.month:] for enclosure in self.enclosures \
+            if enclosure.is_filled() and not enclosure.fru.is_dead()], axis='columns', ignore_index=True)
+        #curves.index = range(len(curves))
 
         if months is not None:
-            curves = curves.loc[:months, :]
-        
+            curves = curves.iloc[:months, :]
+
         # cap at nameplate rating
         potential = curves.sum('columns')
         energy = potential.where(potential < self.nameplate, self.nameplate).sum()

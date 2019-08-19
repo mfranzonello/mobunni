@@ -195,13 +195,15 @@ class Simulation:
         if self.scenario.windowed:
             drops.extend(['WTMO', 'Weff'])
         performance_gb = performance.drop(drops, axis='columns').groupby(['date'])
-        performance_mean = performance_gb.mean().reset_index()
-        performance_max = performance_gb.max().reset_index()
-        performance_min = performance_gb.min().reset_index()
 
-        site_performance = performance_mean\
-            .merge(performance_max, on='date', suffixes=['', '_max'])\
-            .merge(performance_min, on='date', suffixes=['', '_min'])
+        performances = {'min': performance_gb.min(),
+                        '25': performance_gb.quantile(.25),
+                        '75': performance_gb.quantile(.75),
+                        'max': performance_gb.max()}
+
+        site_performance = performance_gb.mean().reset_index()
+        for perf in performances:
+            site_performance = site_performance.merge(performances[perf], on='date', suffixes=['', '_{}'.format(perf)])
 
         return site_performance
 

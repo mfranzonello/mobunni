@@ -51,14 +51,27 @@ class Templates:
 class LogBook:
     def __init__(self):
         self.transactions = DataFrame(columns=['date', 'serial', 'model', 'mark', 'power', 'efficiency', 'action',
-                                                      'direction', 'site', 'server', 'enclosure', 'service cost'])
+                                               'direction', 'site', 'server', 'enclosure', 'service cost', 'reason'])
         self.performance = {'site': {}, 'fru': {}}
+
+    def number(self, value):
+        try:
+            if int(value) == value:
+                num = int(value) + 1
+            else:
+                num = value
+        except TypeError:
+            num = value
+        
+        return num
 
     # record log of transactions
     def record_transaction(self, date, serial, model, mark, power, efficiency,
-                           action, direction, site_number, server_number, enclosure_number, cost):
+                           action, direction, site_number, server_number, enclosure_number, cost, reason=None):
         self.transactions.loc[len(self.transactions), :] = [date, serial, model, mark, power, efficiency,
-                                                            action, direction, site_number+1, server_number+1, enclosure_number+1, cost]
+                                                            action, direction,
+                                                            self.number(site_number), self.number(server_number), self.number(enclosure_number),
+                                                            cost, reason]
 
     # store power and efficiency
     def record_performance(self, table, site_number, *args):
@@ -143,9 +156,9 @@ class Shop:
 
     # record log of transactions
     def transact(self, serial, model, mark, power, efficiency,
-                 action, direction, site_number, server_number, enclosure_number, cost):
+                 action, direction, site_number, server_number, enclosure_number, cost, reason=None):
         self.log_book.record_transaction(self.date, serial, model, mark, power, efficiency,
-                                         action, direction, site_number, server_number, enclosure_number, cost)
+                                         action, direction, site_number, server_number, enclosure_number, cost, reason)
 
     # return serial number for component tracking
     def get_serial(self, component):
@@ -159,7 +172,7 @@ class Shop:
         return cost
 
     # copy a FRU from a template
-    def create_fru(self, model, mark, install_date, site_number, server_number, enclosure_number, initial=False, fit=None):
+    def create_fru(self, model, mark, install_date, site_number, server_number, enclosure_number, initial=False, fit=None, reason=None):
         serial = self.get_serial('PWM')
         
         # check if template already created to reduce calls to DB
@@ -172,49 +185,38 @@ class Shop:
         # record costs
         transact_action = 'intialized PWM' if initial else 'created FRU'
         self.transact(serial, model, mark, fru.get_power(), fru.get_efficiency(),
-                      transact_action, 'to', site_number, server_number, enclosure_number, cost)
+                      transact_action, 'to', site_number, server_number, enclosure_number, cost, reason=reason)
 
         return fru
 
     # take a FRU from a site and add to storage queue
-    def store_fru(self, fru, site_number, server_number, enclosure_number, repair=False, final=False):
-        if (self.junk_level is None) or (fru.get_power() < self.junk_level) or (fru.get_expected_life() <= self.deploy_months):
-            # if FRU has no value, junk it
-            self.junk.append(fru)
+    def store_fru(self, fru, site_number, server_number, enclosure_number, repair=False, final=False, reason=None):
+        self.storage.append(fru)
 
-            cost = self.get_cost('junk fru')
+        cost = self.get_cost('store fru') if not final else 0 # decommissioning doesn't count as service
 
-            self.transact(fru.serial, fru.model, fru.mark, fru.get_power(), fru.get_efficiency(),
-                          'junked FRU', 'from', site_number, server_number, enclosure_number, cost)
+        self.transact(fru.serial, fru.model, fru.mark, fru.get_power(), fru.get_efficiency(),
+                      'stored FRU', 'from', site_number, server_number, enclosure_number, cost, reason=reason)
 
-        else:
-            # FRU could be deployed in future
-            self.storage.append(fru)
+        # repairing FRU moves power curve up
+        if repair:
+            self.storage[-1].repair()
 
-            cost = self.get_cost('store fru') if not final else 0 ## decommissioning doesn't count as service
+            cost = self.get_cost('repair fru', model=fru.model, mark=fru.mark, operating_time=fru.month, power=fru.get_power())
 
             self.transact(fru.serial, fru.model, fru.mark, fru.get_power(), fru.get_efficiency(),
-                          'stored FRU', 'from', site_number, server_number, enclosure_number, cost)
-
-            # repairing FRU moves power curve up
-            if repair:
-                self.storage[-1].repair()
-
-                cost = self.get_cost('repair fru', model=fru.model, mark=fru.mark, operating_time=fru.month, power=fru.get_power())
-
-                self.transact(fru.serial, fru.model, fru.mark, fru.get_power(), fru.get_efficiency(),
-                              'repaired FRU', 'from', site_number, server_number, enclosure_number, cost)
+                          'repaired FRU', 'from', site_number, server_number, enclosure_number, cost, reason='deviated FRU')
 
         return
 
     # take a FRU out of storage to send to site    
-    def deploy_fru(self, queue, site_number, server_number, enclosure_number):
+    def deploy_fru(self, queue, site_number, server_number, enclosure_number, reason=None):
         fru = self.deployable.pop(queue)
         
         cost = self.get_cost('deploy fru')
 
         self.transact(fru.serial, fru.model, fru.mark, fru.get_power(), fru.get_efficiency(),
-                      'deployed FRU', 'to', site_number, server_number, enclosure_number, cost)
+                      'deployed FRU', 'to', site_number, server_number, enclosure_number, cost, reason=reason)
 
         return fru
 
@@ -224,23 +226,23 @@ class Shop:
             cost = self.get_cost('salvage fru', fru.model, fru.mark, operating_time=fru.month, power=fru.get_power())
 
             self.transact(fru.serial, fru.model, fru.mark, fru.get_power(), fru.get_efficiency(), 'salvaged FRU',
-                          '', 0, 0, 0, cost)
+                          'in storage', None, None, None, cost, reason='end of contract')
             self.salvage.append(fru)
         self.storage = []
 
     # move FRUs between energy servers at a site
-    def balance_frus(self, fru, site_number, server1, enclosure1, server2, enclosure2):
+    def balance_frus(self, fru, site_number, server1, enclosure1, server2, enclosure2, reason=None):
         cost = self.get_cost('balance fru')
 
         self.transact(fru.serial, fru.model, fru.mark, fru.get_power(), fru.get_efficiency(),
-                      'pulled FRU', 'from', site_number, server1, enclosure1, cost/2)
+                      'pulled FRU', 'from', site_number, server1, enclosure1, cost/2, reason=reason)
 
         self.transact(fru.serial, fru.model, fru.mark, fru.get_power(), fru.get_efficiency(),
-                     'moved FRU', 'to', site_number, server2, enclosure2, cost/2)
+                     'moved FRU', 'to', site_number, server2, enclosure2, cost/2, reason=reason)
 
     # overhaul a FRU to make it refurbished and bespoke
     ## NOT IMPLEMENTED
-    def overhaul_fru(self, queue, mark, site_number, server_number, enclosure_number):
+    def overhaul_fru(self, queue, mark, site_number, server_number, enclosure_number, reason=None):
         fru = self.junk.pop(queue)
         power_curves = PowerCurves(self.sql_db.get_power_curves(model, mark))
         efficiency_curve = self.sql_db.get_efficiency_curve(model, mark)
@@ -248,7 +250,7 @@ class Shop:
         fru.overhaul(mark, power_curves, efficiency_curve)
         cost = self.get_cost('overhaul fru')
         self.transact(fru.serial, fru.model, fru.mark, fru.get_power(), fru.get_efficiency(),
-                        'overhauled FRU', 'to', site_number, server_number, enclosure_number, cost)
+                        'overhauled FRU', 'to', site_number, server_number, enclosure_number, cost, reason=reason)
         return fru
 
     # find FRU in deployable or junk that best fits requirements
@@ -305,7 +307,7 @@ class Shop:
 
     # use a stored FRU or create a new one for power and energy requirements
     def get_best_fit_fru(self, server_model, install_date, site_number, server_number, enclosure_number,
-                         power_needed=0, energy_needed=0, time_needed=0, max_power=None, initial=False):
+                         power_needed=0, energy_needed=0, time_needed=0, max_power=None, initial=False, reason=None):
         allowed_modules = self.sql_db.get_compatible_modules(server_model)
        
         junked = {'deployable': False} ##, 'junked': True}
@@ -316,17 +318,17 @@ class Shop:
             energies = self.list_energies(allowed_modules, time_needed, junked[location])
             queues[location] = self.find_fru(allowed_modules, junked=junked[location],
                                              power_needed=power_needed, energy_needed=energy_needed, time_needed=time_needed,
-                                             max_power=max_power) #self.allow_ceiling_loss
+                                             max_power=max_power)
         
         if (not initial) and len(self.deployable) and (not isna(queues['deployable'])):
             # there is a FRU available to deploy
             queue = queues['deployable']
-            fru = self.deploy_fru(queue, site_number, server_number, enclosure_number)
+            fru = self.deploy_fru(queue, site_number, server_number, enclosure_number, reason=reason)
 
         ##elif (not initial) and len(self.junk) and (not isna(queues['deployable'])):
         ##    # there is a FRU available to overhaul
         ##    queue = self.list_queues(junked=True)[queues['junked']]
-        ##    fru = self.overhaul_fru(queue, mark, site_number, server_number, enclosure_nunber)
+        ##    fru = self.overhaul_fru(queue, mark, site_number, server_number, enclosure_nunber, reason=reason)
 
         else:
             # there is not a FRU available, so create a new one
@@ -346,7 +348,7 @@ class Shop:
             if module is not None:
                 # can create a FRU accoring to requirements
                 model, mark = module
-                fru = self.create_fru(model, mark, install_date, site_number, server_number, enclosure_number, initial)
+                fru = self.create_fru(model, mark, install_date, site_number, server_number, enclosure_number, initial, reason=reason)
 
             else:
                 # cannot create a FRU according to requirements
@@ -386,7 +388,8 @@ class Shop:
         return server_model_number, server_count
 
     # create a new energy server
-    def create_server(self, site_number, server_number, server_model_number=None, server_model_class=None, nameplate_needed=0):
+    def create_server(self, site_number, server_number, server_model_number=None, server_model_class=None, nameplate_needed=0,
+                      reason='populating site'):
         # get cost to create a server
         cost = self.get_cost('install server')
 
@@ -396,8 +399,8 @@ class Shop:
         
         server = Server(serial, server_number, server_model['model'], server_model['model_number'], server_model['nameplate'])
 
-        self.transact(server.serial, server.model, server.model_number, server.nameplate, 0,
-                      'installed ES', 'at', site_number, server.number, -1, cost)
+        self.transact(server.serial, server.model, server.model_number, server.nameplate, None,
+                      'installed ES', 'at', site_number, server.number, None, cost, reason=reason)
 
         enclosures = self.create_enclosures(site_number, server, enclosure_count=server_model['enclosures'], plus_one_count=server_model['plus_one'])     
 
@@ -407,11 +410,11 @@ class Shop:
         return server
 
     # upgrade server inverter to a higher capactiy ## NOT USED YET
-    def upgrade_server(self, server, site_number, nameplate):
+    def upgrade_server(self, server, site_number, nameplate, reason=None):
         server.upgrade_nameplate(nameplate)
         cost = self.get_cost('upgrade server', model=server.model, power=nameplate - server.nameplate)
-        self.transact(server.serial, server.model, server.model_number, nameplate, 0,
-                     'upgraded ES', 'at', site_number, server.number, -1, cost)
+        self.transact(server.serial, server.model, server.model_number, nameplate, None,
+                     'upgraded ES', 'at', site_number, server.number, None, cost, reason=reason)
         pass
     
     # return nameplate rating of server model
@@ -420,7 +423,8 @@ class Shop:
         return nameplate
 
     # create an enclosure cabinent to add to a server to house a FRU
-    def create_enclosures(self, site_number, server, start_number=0, enclosure_count=0, plus_one_count=0):
+    def create_enclosures(self, site_number, server, start_number=0, enclosure_count=0, plus_one_count=0,
+                          reason='populating server'):
         # get cost per enclosure
         costs = enclosure_count * [self.get_cost('intialize enclosure')] + plus_one_count * [self.get_cost('add enclosure')] 
        
@@ -430,8 +434,8 @@ class Shop:
             serial = self.get_serial('ENC')
             enclosure = Enclosure(serial, start_number + c)
             enclosures.append(enclosure)
-            self.transact(serial, server.model, 'ENCLOSURE', 0, 0,
-                          'add enclosure', 'at', site_number, server.number, enclosure.number, costs[c])
+            self.transact(serial, server.model, 'ENCLOSURE', None, None,
+                          'add enclosure', 'at', site_number, server.number, enclosure.number, costs[c], reason=reason)
 
         return enclosures
 
@@ -442,11 +446,11 @@ class Shop:
             fru.store(self.deploy_months)
 
             # check if storage killed FRU
-            if fru.is_dead():
+            if fru.get_power() < self.junk_level:
                 self.junk.append(fru)
                
                 self.transact(fru.serial, fru.model, fru.mark, fru.get_power(), fru.get_efficiency(),
-                              'junked FRU', '', -1, -1, -1, 0)
+                              'junked FRU', 'in storage', None, None, None, None, reason='power below {}kw'.format(self.junk_level))
 
             else:
                 self.deployable.append(fru)

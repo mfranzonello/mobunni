@@ -216,7 +216,7 @@ class Site:
                     operating_time = relativedelta(self.get_date(), fru_date)
                     fru_fit = {'operating time': operating_time.years*12 + operating_time.months, 'current power': fru_power}
                     fru = self.shop.create_fru(fru_model, fru_mark, fru_date, self.number, server_number, enclosure_number,
-                                                initial=True, fit=fru_fit)
+                                                initial=True, fit=fru_fit, reason='populating enclosure')
 
                     server.replace_fru(enclosure_number, fru)
                 enclosure_number += 1
@@ -248,7 +248,7 @@ class Site:
                 power_needed = self.contract.target_size - self.get_site_power()
 
                 fru = self.shop.get_best_fit_fru(self.server_model, self.get_date(), self.number, server_number, enclosure_number,
-                                                 power_needed=power_needed, initial=True)
+                                                 power_needed=power_needed, initial=True, reason='populating enclosure')
                 self.replace_fru(server_number, enclosure_number, fru)
 
         self.system_size = self.get_system_size()    
@@ -260,11 +260,14 @@ class Site:
                 if enclosure.is_filled():
                     old_fru = self.replace_fru(server.number, enclosure.number, None)
                     deviated = old_fru.is_deviated(self.shop.thresholds['deviated'])
-                    self.shop.store_fru(old_fru, self.number, server.number, enclosure.number, final=True, repair=deviated)
+                    self.shop.store_fru(old_fru, self.number, server.number, enclosure.number, final=True, repair=deviated, reason='end of contract')
         return
         
     # move FRUs between enclosures
     def swap_frus(self, server_1, enclosure_1, server_2, enclosure_2):
+        # starting ceiling loss
+        ceiling_loss_start = self.get_site_ceiling_loss()
+        
         # take out first fru
         fru_1 = self.replace_fru(server_1, enclosure_1, None)
         # swap first fru and second fru
@@ -272,12 +275,17 @@ class Site:
         # reinstall second fru
         self.replace_fru(server_1, enclosure_1, fru_2)
 
+        # ending ceiling loss
+        ceiling_loss_end = self.get_site_ceiling_loss()
+
+        reason = 'minimizing ceiling loss from {:0.1f}kw to {:0.1f}kw'.format(ceiling_loss_start, ceiling_loss_end)
+
         # record movements
         if fru_1:
-            self.shop.balance_frus(fru_1, self.number, server_1, enclosure_1, server_2, enclosure_2)
+            self.shop.balance_frus(fru_1, self.number, server_1, enclosure_1, server_2, enclosure_2, reason=reason)
 
         if fru_2:
-            self.shop.balance_frus(fru_2, self.number, server_2, enclosure_2, server_1, enclosure_1)
+            self.shop.balance_frus(fru_2, self.number, server_2, enclosure_2, server_1, enclosure_1, reason=reason)
 
         return fru_1, fru_2
 
@@ -296,7 +304,7 @@ class Site:
             # swap frus
             fru_1, fru_2 = self.swap_frus(server_1, enclosure_1, server_2, enclosure_2)
 
-    def replace_and_balance(self, server_n, enclosure_n, new_fru):
+    def replace_and_balance(self, server_n, enclosure_n, new_fru, reason=None):
         # there is a FRU that meets ceiling loss requirements
         if new_fru is not None:
 
@@ -304,7 +312,7 @@ class Site:
             old_fru = self.replace_fru(server_n, enclosure_n, new_fru)
             if old_fru is not None:
                 # FRU replaced an existing module
-                self.shop.store_fru(old_fru, self.number, server_n, enclosure_n)
+                self.shop.store_fru(old_fru, self.number, server_n, enclosure_n, reason=reason)
             
             # FRU was added to empty enclosure, so check for overloading
             self.balance_site()

@@ -113,7 +113,8 @@ class Excelerator:
 
             chart_columns = chart.get('columns')
             _, column_indices = self.get_indices(sheetname, chart_columns)
-            columns = {column_index: {'color': color, 'dash': dash} for (column_index, color, dash) in zip(column_indices, chart['colors'], chart['dashes'])}
+            chart_zip = zip(column_indices, chart['colors'], chart['dashes'], chart['weights'])
+            columns = {column_index: {'color': color, 'dash': dash, 'weight': weight} for (column_index, color, dash, weight) in chart_zip}
 
             max_rows, max_columns = df.shape
             chart_sheet_name = chart.get('chart sheet name')
@@ -184,7 +185,7 @@ class Excelerator:
                 chart.add_series({'name': [sheetname, header_row, column],
                                   'categories': [sheetname, 1, header_row, rows, category_column],
                                   'values': [sheetname, 1, column, rows, column],
-                                  'border': {'color': columns[column]['color'], 'dash_type': columns[column]['dash']}
+                                  'border': {'color': columns[column]['color'], 'dash_type': columns[column]['dash'], 'width': columns[column]['weight']}
                                   })
 
             if constants:
@@ -234,8 +235,9 @@ class ExcelePaint:
 
     ranges = {'C': '#2E86C1', 'W': '#E74C3C', 'P': '#28B463'}
     ranges_lite = {'C': '#85C1E9', 'W': '#F1948A', 'P': '#82E0AA'}
-    bounds = {'_max': 'dash', '': 'solid', '_min': 'dash'}
+    bounds = {'_max': 'dash', '': 'solid', '_min': 'dash', '_25': 'solid', '_75': 'solid'}
     bounds_lite = {'_limit': 'round_dot'}
+    weights = {'_25': 1, '_75': 1}
 
     num_styles = {'percent': '0.00%',
                   'comma': '#,##0',
@@ -292,7 +294,8 @@ class ExcelePaint:
 
     def _get_charts(windowed, limits, performance, chart_columns, ranges):
         chart_colors = [ranges[r] for v in ExcelePaint.percent_values for r in ranges for b in ExcelePaint.bounds]
-        chart_dashes = [ExcelePaint.bounds[b] for v in ExcelePaint.percent_values for r in ranges for b in ExcelePaint.bounds]
+        chart_dashes = [ExcelePaint.bounds.get(b, 'solid') for v in ExcelePaint.percent_values for r in ranges for b in ExcelePaint.bounds]
+        chart_weights = [ExcelePaint.weights.get(b, 2.25) for v in ExcelePaint.percent_values for r in ranges for b in ExcelePaint.bounds]
         chart_y_axis = {'max': 1.0, 'min': floor(10*performance[chart_columns].min().min())/10,
                         'major_gridlines': {'visible': True, 'line': {'color': '#F4F6F6'}}}
         chart_constants = [{'name': '{}{}{}'.format(r, v, b),
@@ -300,7 +303,8 @@ class ExcelePaint:
                             'color': ExcelePaint.ranges_lite[r],
                             'dash': ExcelePaint.bounds_lite[b],
                             } for r in ranges for v in ExcelePaint.percent_values for b in ExcelePaint.bounds_lite]
-        charts = [{'sheetname': 'performance', 'type': 'line', 'columns': chart_columns, 'colors': chart_colors, 'dashes': chart_dashes,
+        charts = [{'sheetname': 'performance', 'type': 'line', 'columns': chart_columns,
+                   'colors': chart_colors, 'dashes': chart_dashes, 'weights': chart_weights,
                    'chart sheet name': 'graph', 'y-axis': chart_y_axis, 'constants': chart_constants},
                   ]
 
