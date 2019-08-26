@@ -81,7 +81,8 @@ class FRU:
 
     # estimate the power curve in deployed FRU
     def get_expected_curve(self):
-        curve = self.power_curves.get_expected_curve(self.month, self.get_power())
+        curve = self.power_curve
+        #curve = self.power_curves.get_expected_curve(self.month, self.get_power())
         return curve
 
     # estimate the remaining energy in deployed FRU

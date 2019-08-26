@@ -9,6 +9,7 @@ from numpy import nan
 
 from powerful import PowerCurves, PowerModules
 from components import FRU, Enclosure, Server
+from finances import Bank
 from debugging import StopWatch
 
 # template for new modules and servers
@@ -39,7 +40,7 @@ class Templates:
         power_curves = PowerCurves(self.sql_db.get_power_curves(model, mark))
         efficiency_curve = self.sql_db.get_efficiency_curve(model, mark)
 
-        base = mark ##
+        base = self.sql_db.get_module_base(model, mark)
         fru = FRU(serial, model, base, mark, power_curves, efficiency_curve, install_date, current_date=install_date)
 
         # add FRU template
@@ -133,6 +134,8 @@ class Shop:
 
         self.power_modules = PowerModules(sql_db)
         self.templates = Templates(sql_db)
+        self.bank = Bank(sql_db)
+        self.log_book = LogBook()
 
         self.thresholds = thresholds
 
@@ -152,8 +155,6 @@ class Shop:
 
         self.next_serial = {'ES': 0, 'PWM': 0, 'ENC': 0}
 
-        self.log_book = LogBook()
-
     # record log of transactions
     def transact(self, serial, model, mark, power, efficiency,
                  action, direction, site_number, server_number, enclosure_number, cost, reason=None):
@@ -167,8 +168,8 @@ class Shop:
         return serial
 
     # get cost for action
-    def get_cost(self, action, model=None, mark=None, operating_time=None, power=None):
-        cost = self.sql_db.get_cost(action, self.date, model, mark, operating_time, power)
+    def get_cost(self, action, component=None, **kwargs):
+        cost = self.bank.get_cost(self.date, action, component, **kwargs)
         return cost
 
     # copy a FRU from a template
@@ -179,8 +180,10 @@ class Shop:
         fru = self.templates.find_module(model, mark).copy(serial, install_date, current_date=install_date, fit=fit)
 
         # get costs
-        cost_action = 'initialize fru' if initial else 'create fru'
-        cost = self.get_cost(cost_action, model=model, mark=mark)
+        if initial:
+            cost = self.get_cost('initialize fru', fru)
+        else:
+            cost = self.get_cost('create fru', fru)
 
         # record costs
         transact_action = 'intialized PWM' if initial else 'created FRU'
@@ -202,7 +205,7 @@ class Shop:
         if repair:
             self.storage[-1].repair()
 
-            cost = self.get_cost('repair fru', model=fru.model, mark=fru.mark, operating_time=fru.month, power=fru.get_power())
+            cost = self.get_cost('repair fru', fru, operating_time=fru.month, power=fru.get_power())
 
             self.transact(fru.serial, fru.model, fru.mark, fru.get_power(), fru.get_efficiency(),
                           'repaired FRU', 'from', site_number, server_number, enclosure_number, cost, reason='deviated FRU')
@@ -223,7 +226,7 @@ class Shop:
     # get value for FRUs leftover after a contract expires and use for redeploys
     def salvage_frus(self):
         for fru in self.storage:
-            cost = self.get_cost('salvage fru', fru.model, fru.mark, operating_time=fru.month, power=fru.get_power())
+            cost = self.get_cost('salvage fru', fru, operating_time=fru.month, power=fru.get_power())
 
             self.transact(fru.serial, fru.model, fru.mark, fru.get_power(), fru.get_efficiency(), 'salvaged FRU',
                           'in storage', None, None, None, cost, reason='end of contract')
@@ -389,14 +392,14 @@ class Shop:
     # create a new energy server
     def create_server(self, site_number, server_number, server_model_number=None, server_model_class=None, nameplate_needed=0,
                       reason='populating site'):
-        # get cost to create a server
-        cost = self.get_cost('install server')
-
         serial = self.get_serial('ES')
 
         server_model = self.sql_db.get_server_model(server_model_number, server_model_class, nameplate_needed)
         
         server = Server(serial, server_number, server_model['model'], server_model['model_number'], server_model['nameplate'])
+
+        # get cost to create a server
+        cost = self.get_cost('install server', server)
 
         self.transact(server.serial, server.model, server.model_number, server.nameplate, None,
                       'installed ES', 'at', site_number, server.number, None, cost, reason=reason)
@@ -411,7 +414,7 @@ class Shop:
     # upgrade server inverter to a higher capactiy ## NOT USED YET
     def upgrade_server(self, server, site_number, nameplate, reason=None):
         server.upgrade_nameplate(nameplate)
-        cost = self.get_cost('upgrade server', model=server.model, power=nameplate - server.nameplate)
+        cost = self.get_cost('upgrade server', server, power=nameplate - server.nameplate)
         self.transact(server.serial, server.model, server.model_number, nameplate, None,
                      'upgraded ES', 'at', site_number, server.number, None, cost, reason=reason)
         pass

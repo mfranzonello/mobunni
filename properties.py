@@ -110,7 +110,7 @@ class Site:
             ctmo = self.monitor.get_result('performance', 'CTMO', self.month - 1)
         else:
             ctmo = self.monitor.get_starting_cumulative('tmo')
-        site_energy = ctmo * self.month * self.system_size 
+        site_energy = (ctmo * (self.month - 1)) * self.system_size + self.get_site_power()
         return site_energy
 
     # estimate the remaining energy in all servers

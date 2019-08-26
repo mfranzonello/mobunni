@@ -102,10 +102,11 @@ class SQLDB:
         if power is not None:
             where_list.append('power <= {}'.format(power))
             max_list.append('power')
-        
+       
         wheres = ' AND '.join(where_list)
         selects = ','.join(['cost'] + max_list)
         sql = 'SELECT {} FROM Cost WHERE {}'.format(selects, wheres)
+
         costs = read_sql(sql, self.connection)
 
         if len(costs):
@@ -123,6 +124,16 @@ class SQLDB:
         sql = 'SELECT rating FROM Module WHERE model IS "{}" and mark IS "{}"'.format(model, mark)
         rating = read_sql(sql, self.connection).iloc[0].squeeze()
         return rating
+
+    # select module base from model and mark
+    def get_module_base(self, model, mark):
+        where_list = [('model', 'IS', model),
+                      ('mark', 'IS', mark)]
+        wheres = ' AND '.join('({} {} "{}")'.format(this, to, that) for (this, to, that) in where_list)
+
+        sql = 'SELECT base FROM Module WHERE {}'.format(wheres)
+        base = read_sql(sql, self.connection).iloc[0].squeeze()
+        return base
 
     # select new and bespoke options for overhauls
     def get_module_bespokes(self, model, base, install_date):
