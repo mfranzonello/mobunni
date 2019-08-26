@@ -161,7 +161,7 @@ class FRU:
         
 # cabinet in energy server that can house a FRU
 class Enclosure:  
-    def __init__(self, serial, number, rating=10000):
+    def __init__(self, serial, number, model, rating):
         self.serial = serial
         self.number = number
         self.fru = None

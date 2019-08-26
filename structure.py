@@ -146,6 +146,12 @@ class SQLDB:
         bespokes = read_sql(sql, self.connection).squeeze()
         return bespokes
 
+    # select enclosure compatible with energy server
+    def get_enclosure_model(self, server_model):
+        sql = 'SELECT model, rating FROM Enclosure WHERE server IS "{}"'.format(server_model)
+        model, rating = read_sql(sql, self.connection).iloc[0, :]
+        return model, rating
+
     # select default server sizes
     def get_server_nameplates(self, server_model_class, target_size):
         sql = 'SELECT model_number, nameplate, standard FROM Server WHERE nameplate <= {}'.format(target_size)# WHERE standard IS 1'

@@ -7,46 +7,10 @@ from random import randrange
 from pandas import DataFrame, Series, concat, to_datetime, isna
 from numpy import nan
 
-from powerful import PowerCurves, PowerModules
+from powerful import PowerModules, HotBoxes, EnergyServers
 from components import FRU, Enclosure, Server
 from finances import Bank
 from debugging import StopWatch
-
-# template for new modules and servers
-class Templates:
-    def __init__(self, sql_db):
-        self.sql_db = sql_db
-        self.servers = {}
-        self.modules = {}
-
-    def find_server(self, model):
-        server = None
-        return server
-
-    def ghost_server(self, model):
-        pass
-
-    def find_module(self, model, mark):
-        if (model, mark) in self.modules:
-            module = self.modules[(model, mark)]
-        else:
-            module = self.ghost_module(model, mark)
-        return module
-
-    def ghost_module(self, model, mark):
-        serial = None # blank serial
-        install_date = None # blank date
-
-        power_curves = PowerCurves(self.sql_db.get_power_curves(model, mark))
-        efficiency_curve = self.sql_db.get_efficiency_curve(model, mark)
-
-        base = self.sql_db.get_module_base(model, mark)
-        fru = FRU(serial, model, base, mark, power_curves, efficiency_curve, install_date, current_date=install_date)
-
-        # add FRU template
-        self.modules[(model, mark)] = fru
-
-        return fru
 
 # record of transactions and results across shop and fleet
 class LogBook:
@@ -126,15 +90,51 @@ class LogBook:
 
         return transactions
 
+# template for new modules and servers
+class Templates:
+    def __init__(self, power_modules):
+        self.power_modules = power_modules
+        self.servers = {}
+        self.modules = {}
+
+    def find_server(self, model):
+        server = None
+        return server
+
+    def ghost_server(self, model):
+        pass
+
+    def find_module(self, model, mark):
+        if (model, mark) in self.modules:
+            module = self.modules[(model, mark)]
+        else:
+            module = self.ghost_module(model, mark)
+        return module
+
+    def ghost_module(self, model, mark):
+        serial = None # blank serial
+        install_date = None # blank date
+
+        power_curves, efficiency_curve = self.power_modules.get_curves(model, mark)
+
+        base = self.power_modules.get_module_base(model, mark)
+        fru = FRU(serial, model, base, mark, power_curves, efficiency_curve, install_date, current_date=install_date)
+
+        # add FRU template
+        self.modules[(model, mark)] = fru
+
+        return fru
+
 # warehouse to store, repair and deploy old FRUs and create new FRUs
 class Shop:
     def __init__(self, sql_db, thresholds, install_date, tweaks,
                  allowed_fru_models=None):
-        self.sql_db = sql_db
-
         self.power_modules = PowerModules(sql_db)
-        self.templates = Templates(sql_db)
+        self.hot_boxes = HotBoxes(sql_db)
+        self.energy_servers = EnergyServers(sql_db)
         self.bank = Bank(sql_db)
+
+        self.templates = Templates(self.power_modules)
         self.log_book = LogBook()
 
         self.thresholds = thresholds
@@ -245,16 +245,16 @@ class Shop:
 
     # overhaul a FRU to make it refurbished and bespoke
     ## NOT IMPLEMENTED
-    def overhaul_fru(self, queue, mark, site_number, server_number, enclosure_number, reason=None):
-        fru = self.junk.pop(queue)
-        power_curves = PowerCurves(self.sql_db.get_power_curves(model, mark))
-        efficiency_curve = self.sql_db.get_efficiency_curve(model, mark)
+    ##def overhaul_fru(self, queue, mark, site_number, server_number, enclosure_number, reason=None):
+    ##    fru = self.junk.pop(queue)
+    ##    power_curves = PowerCurves(self.sql_db.get_power_curves(fru.model, mark))
+    ##    efficiency_curve = self.sql_db.get_efficiency_curve(fru.model, mark)
 
-        fru.overhaul(mark, power_curves, efficiency_curve)
-        cost = self.get_cost('overhaul fru')
-        self.transact(fru.serial, fru.model, fru.mark, fru.get_power(), fru.get_efficiency(),
-                        'overhauled FRU', 'to', site_number, server_number, enclosure_number, cost, reason=reason)
-        return fru
+    ##    fru.overhaul(mark, power_curves, efficiency_curve)
+    ##    cost = self.get_cost('overhaul fru')
+    ##    self.transact(fru.serial, fru.model, fru.mark, fru.get_power(), fru.get_efficiency(),
+    ##                    'overhauled FRU', 'to', site_number, server_number, enclosure_number, cost, reason=reason)
+    ##    return fru
 
     # find FRU in deployable or junk that best fits requirements
     def find_fru(self, allowed_models, power_needed=0, energy_needed=0, time_needed=0, max_power=None, junked=False):
@@ -311,7 +311,7 @@ class Shop:
     # use a stored FRU or create a new one for power and energy requirements
     def get_best_fit_fru(self, server_model, install_date, site_number, server_number, enclosure_number,
                          power_needed=0, energy_needed=0, time_needed=0, max_power=None, initial=False, reason=None):
-        allowed_modules = self.sql_db.get_compatible_modules(server_model)
+        allowed_modules = self.energy_servers.get_compatible_modules(server_model)
        
         junked = {'deployable': False} ##, 'junked': True}
         queues = {}
@@ -360,7 +360,7 @@ class Shop:
 
     # get base model of a server model number
     def get_server_model(self, server_model_number):
-        server_model = self.sql_db.get_server_model(server_model_number)['model']
+        server_model = self.energy_servers.get_server_model(server_model_number=server_model_number)['model']
         return server_model
 
     # get model types to most closely match target size
@@ -369,16 +369,16 @@ class Shop:
         if (new_servers is not None) and (len(new_servers['model'])):
             # get values from database
             server_model_number = new_servers['model']
-            server_model = self.sql_db.get_server_model(new_servers['model'])
+            server_model = self.energy_servers.get_server_model(server_model_number=new_servers['model'])
             server_count = int(target_size / server_model['nameplate'])
 
         else:
             # check if server model class is available in given year, else use next best
             target_model = new_servers['model'] if new_servers is not None else None
-            latest_server_model_class = self.sql_db.get_latest_server_model(self.date, target_model=target_model)
+            latest_server_model_class = self.energy_servers.get_latest_server_model(self.date, target_model)
         
             # get default nameplate sizes   
-            server_nameplates = self.sql_db.get_server_nameplates(latest_server_model_class, target_size)
+            server_nameplates = self.energy_servers.get_server_nameplates(latest_server_model_class, target_size)
 
             # determine max number of various size servers could fit
             server_nameplates.loc[:, 'fit'] = (target_size / server_nameplates['nameplate']).astype(int)
@@ -394,7 +394,9 @@ class Shop:
                       reason='populating site'):
         serial = self.get_serial('ES')
 
-        server_model = self.sql_db.get_server_model(server_model_number, server_model_class, nameplate_needed)
+        server_model = self.energy_servers.get_server_model(server_model_number=server_model_number,
+                                                            server_model_class=server_model_class,
+                                                            nameplate_needed=nameplate_needed)
         
         server = Server(serial, server_number, server_model['model'], server_model['model_number'], server_model['nameplate'])
 
@@ -404,7 +406,10 @@ class Shop:
         self.transact(server.serial, server.model, server.model_number, server.nameplate, None,
                       'installed ES', 'at', site_number, server.number, None, cost, reason=reason)
 
-        enclosures = self.create_enclosures(site_number, server, enclosure_count=server_model['enclosures'], plus_one_count=server_model['plus_one'])     
+        enclosure_model, enclosure_rating = self.hot_boxes.get_model(server_model['model'])
+
+        enclosures = self.create_enclosures(site_number, server, enclosure_model, enclosure_rating,
+                                            enclosure_count=server_model['enclosures'], plus_one_count=server_model['plus_one'])     
 
         for enclosure in enclosures:
             server.add_enclosure(enclosure)
@@ -421,11 +426,12 @@ class Shop:
     
     # return nameplate rating of server model
     def get_server_nameplate(self, server_model):
-        nameplate = self.sql_db.get_server_nameplate(server_model)
+        nameplate = self.energy_servers.get_server_nameplates(server_model)
         return nameplate
 
     # create an enclosure cabinent to add to a server to house a FRU
-    def create_enclosures(self, site_number, server, start_number=0, enclosure_count=0, plus_one_count=0,
+    def create_enclosures(self, site_number, server, enclosure_model, rating,
+                          start_number=0, enclosure_count=0, plus_one_count=0,
                           reason='populating server'):
         # get cost per enclosure
         costs = enclosure_count * [self.get_cost('intialize enclosure')] + plus_one_count * [self.get_cost('add enclosure')] 
@@ -434,7 +440,7 @@ class Shop:
         enclosures = []
         for c in range(enclosure_count + plus_one_count):
             serial = self.get_serial('ENC')
-            enclosure = Enclosure(serial, start_number + c)
+            enclosure = Enclosure(serial, start_number + c, enclosure_model, rating)
             enclosures.append(enclosure)
             self.transact(serial, server.model, 'ENCLOSURE', None, None,
                           'add enclosure', 'at', site_number, server.number, enclosure.number, costs[c], reason=reason)

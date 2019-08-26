@@ -1,4 +1,4 @@
-# definitions for power and efficiency curves, power modules and energy servers
+# definitions for power and efficiency curves, power modules, hot boxes and energy servers
 
 from pandas import DataFrame
 from numpy import random as nprandom
@@ -107,10 +107,21 @@ class PowerCurves:
             energy = expected_curve.iloc[operating_time:].sum()
         return energy
 
+# efficiency curves for a model type (NOT IMPLEMENTED)
+class EfficiencyCurves:
+    def __init__(self, curves):
+        self.curves = curves
+
 # details of power modules
 class PowerModules:
     def __init__(self, sql_db):
         self.sql_db = sql_db
+
+    # get power and efficiency curves
+    def get_curves(self, model, mark):
+        power_curves = PowerCurves(self.sql_db.get_power_curves(model, mark))
+        efficiency_curve = self.sql_db.get_efficiency_curve(model, mark)
+        return power_curves, efficiency_curve
 
     # find best new power module available
     def get_model(self, install_date, power_needed=0, max_power=None, energy_needed=0, time_needed=0, best=False, server_model=None, allowed_fru_models=None):
@@ -151,6 +162,11 @@ class PowerModules:
         
                 return model, mark
 
+    # get base of power module model
+    def get_module_base(self, model, mark):
+        base = self.sql_db.get_module_base(model, mark)
+        return base
+
     # find bespoke options for a power module model
     def get_bespokes(self, model, base, install_date):
         marks = [base] + self.sql_db.get_module_bespokes(model, base, install_date)
@@ -180,6 +196,36 @@ class PowerModules:
         energies = [self.get_energy(model, mark, time_needed) for mark in marks]
         return energies
 
-# details of energy servers
+# details of energy enclosures (NOT IMPLEMENTED)
+class HotBoxes:
+    def __init__(self, sql_db):
+        self.sql_db = sql_db
+
+    def get_model(self, server_model):
+        model, rating = self.sql_db.get_enclosure_model(server_model)
+        return model, rating
+
+# details of energy servers (NOT IMPLEMENTED)
 class EnergyServers:
-    pass
+    def __init__(self, sql_db):
+        self.sql_db = sql_db
+
+    # get power modules that work with energy server
+    def get_compatible_modules(self, server_model):
+        allowed_modules = self.sql_db.get_compatible_modules(server_model)
+        return allowed_modules
+
+    # get base model of a server model number
+    def get_server_model(self, **kwargs):
+        server_model = self.sql_db.get_server_model(**kwargs)
+        return server_model
+
+    # get lasted server model class
+    def get_latest_server_model(self, install_date, target_model):
+        latest_server_model_class = self.sql_db.get_latest_server_model(install_date, target_model=target_model)
+        return latest_server_model_class
+        
+    # get default nameplate sizes   
+    def get_server_nameplates(self, latest_server_model_class, target_size):
+        server_nameplates = self.sql_db.get_server_nameplates(latest_server_model_class, target_size)
+        return server_nameplates
