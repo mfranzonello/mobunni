@@ -245,16 +245,15 @@ class Shop:
 
     # overhaul a FRU to make it refurbished and bespoke
     ## NOT IMPLEMENTED
-    ##def overhaul_fru(self, queue, mark, site_number, server_number, enclosure_number, reason=None):
-    ##    fru = self.junk.pop(queue)
-    ##    power_curves = PowerCurves(self.sql_db.get_power_curves(fru.model, mark))
-    ##    efficiency_curve = self.sql_db.get_efficiency_curve(fru.model, mark)
+    def overhaul_fru(self, queue, mark, site_number, server_number, enclosure_number, reason=None):
+        fru = self.junk.pop(queue)
+        power_curves, efficiency_curve = self.power_modules.get_curves(fru.model, mark)
 
-    ##    fru.overhaul(mark, power_curves, efficiency_curve)
-    ##    cost = self.get_cost('overhaul fru')
-    ##    self.transact(fru.serial, fru.model, fru.mark, fru.get_power(), fru.get_efficiency(),
-    ##                    'overhauled FRU', 'to', site_number, server_number, enclosure_number, cost, reason=reason)
-    ##    return fru
+        fru.overhaul(mark, power_curves, efficiency_curve)
+        cost = self.get_cost('overhaul fru')
+        self.transact(fru.serial, fru.model, fru.mark, fru.get_power(), fru.get_efficiency(),
+                        'overhauled FRU', 'to', site_number, server_number, enclosure_number, cost, reason=reason)
+        return fru
 
     # find FRU in deployable or junk that best fits requirements
     def find_fru(self, allowed_models, power_needed=0, energy_needed=0, time_needed=0, max_power=None, junked=False):
