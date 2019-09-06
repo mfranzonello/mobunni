@@ -33,7 +33,7 @@ class FRU:
         if self.is_dead():
             age_string = ' XXX '
         else:
-            age_string = '{:0.1f}yrs'.format(self.month/12)
+            age_string = '{:0.1f}yrs'.format(self.get_month()/12)
         string = 'PWM: {:0.0f}@{:0.1f}kw ({:0.1%}tmo, {:0.1%}eff) - {}'.format(self.rating,
                                                                                self.get_power(),
                                                                                self.get_power()/self.rating,
@@ -51,10 +51,10 @@ class FRU:
         self.max_efficiency = efficiency_curve[0]
 
     # month to look at
-    def _get_month(self, lookahead=None):
+    def get_month(self, lookahead=None):
         if lookahead is None:
             lookahead = 0
-        month = self.month + lookahead
+        month = int(self.month + lookahead)
         return month
 
     # power at current degradation level
@@ -63,7 +63,7 @@ class FRU:
             power = 0
 
         else:
-            month = self._get_month(lookahead=lookahead)
+            month = self.get_month(lookahead=lookahead)
 
             if ideal:
                 curve = self.ideal_curve
@@ -82,30 +82,30 @@ class FRU:
     # estimate the power curve in deployed FRU
     def get_expected_curve(self):
         curve = self.power_curve
-        #curve = self.power_curves.get_expected_curve(self.month, self.get_power())
+        #curve = self.power_curves.get_expected_curve(self.get_month(), self.get_power())
         return curve
 
     # estimate the remaining energy in deployed FRU
     def get_energy(self, months=None):
         time_needed = self.get_expected_life() if months is None else months      
-        energy = self.power_curves.get_expected_energy(operating_time=self.month, observed_power=self.get_power(), time_needed=time_needed)
+        energy = self.power_curves.get_expected_energy(operating_time=self.get_month(), observed_power=self.get_power(), time_needed=time_needed)
         return energy
 
     # get efficiency of FRU
     def get_efficiency(self, lookahead=None):
-        month = self._get_month(lookahead=lookahead)
+        month = self.get_month(lookahead=lookahead)
         efficiency = self.efficiency_curve[min(month, len(self.efficiency_curve)-1)]
         return efficiency
 
     # estimated months left of FRU life
     def get_expected_life(self):
         curve = self.get_expected_curve()
-        life = len(curve) - self.month - 1
+        life = len(curve) - self.get_month() - 1
         return life
 
     # FRU is too old for use
     def is_dead(self, lookahead=None):
-        month = self._get_month(lookahead=lookahead)
+        month = self.get_month(lookahead=lookahead)
         dead = month > len(self.power_curve)
         return dead
 
@@ -232,12 +232,15 @@ class Server:
     # replace FRU in enclosure with new FRU
     def replace_fru(self, enclosure_number=None, fru=None):
         if enclosure_number is None:
-            # remove last FRU
-            filled_enclosures = [enclosure.is_filled() for enclosure in self.enclosures]
-            enclosure_number = len(filled_enclosures) - filled_enclosures[::-1].index(True) - 1
+            # add to next available slot
+            enclosure_number = self.get_empty_enclosure()
+            
+        if enclosure_number is not None:
+            old_fru = self.enclosures[enclosure_number].remove_fru()
+            self.enclosures[enclosure_number].add_fru(fru)
 
-        old_fru = self.enclosures[enclosure_number].remove_fru()
-        self.enclosures[enclosure_number].add_fru(fru)
+        else:
+            old_fru = None
 
         return old_fru
 
@@ -256,7 +259,7 @@ class Server:
 
     # estimate the remaining energy in server FRUs
     def get_energy(self, months=None):
-        curves = concat([enclosure.fru.get_expected_curve()[enclosure.fru.month:] for enclosure in self.enclosures \
+        curves = concat([enclosure.fru.get_expected_curve()[enclosure.fru.get_month():] for enclosure in self.enclosures \
             if enclosure.is_filled() and not enclosure.fru.is_dead()], axis='columns', ignore_index=True)
         #curves.index = range(len(curves))
 

@@ -40,14 +40,14 @@ def get_details(excel_int):
 def get_scenario(excel_int, scenario_number):
     print('Getting scenario {} details'.format(scenario_number+1))
     scenario_name, limits, target_size, start_date, contract_length, start_month, \
-        non_replace, repair, junk_level, best, \
+        non_replace, repair, junk_level, best, early_deploy, \
         new_servers, existing_servers, allowed_fru_models = excel_int.get_scenario(scenario_number)
 
     commitments = Commitments(length=contract_length, target_size=target_size, start_date=start_date,
                               start_month=start_month, non_replace=non_replace, limits=limits)
 
     technology = Technology(new_servers=new_servers, existing_servers=existing_servers, allowed_fru_models=allowed_fru_models)
-    tweaks = Tweaks(repair=repair, junk_level=junk_level, best=best)
+    tweaks = Tweaks(repair=repair, junk_level=junk_level, best=best, early_deploy=early_deploy)
 
     scenario = Scenario(scenario_number, scenario_name,
                         commitments=commitments, technology=technology, tweaks=tweaks)

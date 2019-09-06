@@ -205,8 +205,8 @@ class Inspector:
                 # CTMO or WTMO failure, for early deploy
                 energy = site.get_fru_energy()
                 replaceable_enclosures = energy.where(replaceable_frus, float('nan'))
-                print('ENERGY REPLACEABLES')
-                print(replaceable_enclosures)
+                ##print('ENERGY REPLACEABLES')
+                ##print(replaceable_enclosures)
                 
             elif by == 'efficiency':
                 efficiency = site.get_fru_efficiency()
@@ -238,7 +238,8 @@ class Inspector:
                 commitments, fails = site.Inspector.check_repairs(site)
 
             # check for early deploy opportunity
-            commitments, fails = Inspector.check_deploys(site, commitments, cumulative=early_replaceable, periodic=last_replaceable)
+            if site.shop.early_deploy:
+                commitments, fails = Inspector.check_deploys(site, commitments, cumulative=early_replaceable, periodic=last_replaceable)
 
             # check for replaceable FRU
             if fails['TMO'] or fails['efficiency']:
@@ -306,9 +307,9 @@ class Inspector:
                 Inspector.check_fail(site, expected_ctmo, site.limits['CTMO'], pad=site.shop.thresholds['tmo pad']) and \
                 Inspector.check_exists(server_dc, enclosure_dc):
                 
-                print()
-                print(Inspector.get_replaceable_frus(site, by='energy'))
-                print('max power: {}, installable: {}, expected ctmo: {}, server_dc, enclosure_dc: {}'.format(max_power, installable, expected_ctmo, [server_dc, enclosure_dc]))
+                ##print()
+                ##print(Inspector.get_replaceable_frus(site, by='energy'))
+                ##print('max power: {}, installable: {}, expected ctmo: {}, server_dc, enclosure_dc: {}'.format(max_power, installable, expected_ctmo, [server_dc, enclosure_dc]))
 
                 additional_energy = (site.limits['CTMO'] + site.shop.thresholds['tmo pad']) * site.contract.length * 12 * site.system_size \
                     - (site.get_energy_produced() + site.get_energy_remaining())
@@ -328,10 +329,10 @@ class Inspector:
                 server_dc, enclosure_dc = Inspector.get_worst_fru(site, 'energy')
                 max_power, installable = Inspector.check_max_power(site, new_fru=new_fru)
 
-                print(Inspector.get_replaceable_frus(site, by='energy'))
-                print('max power: {}, installable: {}, expected ctmo: {}, server_dc, enclosure_dc: {}'.format(max_power, installable, expected_ctmo, [server_dc, enclosure_dc]))
+                ##print(Inspector.get_replaceable_frus(site, by='energy'))
+                ##print('max power: {}, installable: {}, expected ctmo: {}, server_dc, enclosure_dc: {}'.format(max_power, installable, expected_ctmo, [server_dc, enclosure_dc]))
 
-                site.monitor.store_result('power', 'expected CTMO', site.month, expected_ctmo)
+                site.monitor.store_result('power', 'expected CTMO', site.get_month(), expected_ctmo)
 
             ## estimate final cumulative efficiency if FRUs degrade as expected and add FRUs if needed, with padding
             #expected_ceff = 0
@@ -365,9 +366,9 @@ class Inspector:
                 Inspector.check_fail(site, expected_ptmo, site.limits['PTMO'], pad=site.shop.thresholds['tmo pad']) and \
                 Inspector.check_exists(server_dp, enclosure_dp):
 
-                print()
-                print(Inspector.get_replaceable_frus(site, by='power'))
-                print('max power: {}, installable: {}, expected ptmo: {}, server_dp, enclosure_dp: {}'.format(max_power, installable, expected_ptmo, [server_dp, enclosure_dp]))
+                ##print()
+                ##print(Inspector.get_replaceable_frus(site, by='power'))
+                ##print('max power: {}, installable: {}, expected ptmo: {}, server_dp, enclosure_dp: {}'.format(max_power, installable, expected_ptmo, [server_dp, enclosure_dp]))
 
                 additional_power = (site.limits['PTMO'] + site.shop.thresholds['tmo pad'] - expected_ptmo) * site.system_size
                    
@@ -383,10 +384,10 @@ class Inspector:
                 server_dp, enclosure_dp = Inspector.get_worst_fru(site, 'power')
                 max_power, installable = Inspector.check_max_power(site, new_fru=new_fru)
 
-                print(Inspector.get_replaceable_frus(site, by='power'))
-                print('max power: {}, installable: {}, expected ptmo: {}, server_dp, enclosure_dp: {}'.format(max_power, installable, expected_ptmo, [server_dp, enclosure_dp]))
+                ##print(Inspector.get_replaceable_frus(site, by='power'))
+                ##print('max power: {}, installable: {}, expected ptmo: {}, server_dp, enclosure_dp: {}'.format(max_power, installable, expected_ptmo, [server_dp, enclosure_dp]))
 
-                site.monitor.store_result('power', 'expected PTMO', site.month, expected_ptmo)
+                site.monitor.store_result('power', 'expected PTMO', site.get_month(), expected_ptmo)
 
         commitments, fails = site.store_performance()
 
@@ -398,11 +399,11 @@ class Inspector:
             if site.servers[server_p].enclosures[enclosure_p].is_filled() else 0
 
         if fails['CTMO']:
-            power_needed = ((site.limits['CTMO'] - commitments['CTMO']) * site.system_size + power_pulled) * site.month
+            power_needed = ((site.limits['CTMO'] - commitments['CTMO']) * site.system_size + power_pulled) * site.get_month()
             reason_fail = 'CTMO'
 
         elif fails['WTMO']:
-            power_needed = ((site.limits['WTMO'] - commitments['WTMO']) * site.system_size + power_pulled) * min(site.month, site.limits['window'])
+            power_needed = ((site.limits['WTMO'] - commitments['WTMO']) * site.system_size + power_pulled) * min(site.get_month(), site.limits['window'])
             reason_fail = 'WTMO'
 
         elif fails['PTMO']:

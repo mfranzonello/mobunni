@@ -1,6 +1,5 @@
 # contracts
 
-
 # collection of contracts across sites
 class Portfolio:
     def __init__(self):

@@ -140,9 +140,9 @@ class Shop:
         self.thresholds = thresholds
 
         self.junk_level = tweaks.junk_level
-        self.deploy_months = tweaks.deploy_months
         self.best = tweaks.best
         self.repair = tweaks.repair
+        self.early_deploy = tweaks.early_deploy
 
         self.storage = []
         self.deployable = []
@@ -205,7 +205,7 @@ class Shop:
         if repair:
             self.storage[-1].repair()
 
-            cost = self.get_cost('repair fru', fru, operating_time=fru.month, power=fru.get_power())
+            cost = self.get_cost('repair fru', fru, operating_time=fru.get_month(), power=fru.get_power())
 
             self.transact(fru.serial, fru.model, fru.mark, fru.get_power(), fru.get_efficiency(),
                           'repaired FRU', 'from', site_number, server_number, enclosure_number, cost, reason='deviated FRU')
@@ -226,7 +226,7 @@ class Shop:
     # get value for FRUs leftover after a contract expires and use for redeploys
     def salvage_frus(self):
         for fru in self.storage:
-            cost = self.get_cost('salvage fru', fru, operating_time=fru.month, power=fru.get_power())
+            cost = self.get_cost('salvage fru', fru, operating_time=fru.get_month(), power=fru.get_power())
 
             self.transact(fru.serial, fru.model, fru.mark, fru.get_power(), fru.get_efficiency(), 'salvaged FRU',
                           'in storage', None, None, None, cost, reason='end of contract')
@@ -450,7 +450,7 @@ class Shop:
     def advance(self):
         for fru in self.storage:
             # FRU storage moves power curve forward
-            fru.store(self.deploy_months)
+            fru.store(self.thresholds['deploy months'])
 
             # check if storage killed FRU
             if fru.get_power() < self.junk_level:

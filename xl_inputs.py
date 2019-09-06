@@ -212,7 +212,7 @@ class ExcelInt:
         keys = {'ctmo_limit': self.floater, 'wtmo_limit': self.floater, 'ptmo_limit': self.floater,
                 'ceff_limit': self.floater, 'weff_limit': self.floater, 'peff_limit': self.floater, 'window': self.inter,
                 'target_size': float, 'start_date': self.xldate, 'contract_length': int, 'contract_start': float, 'nonreplace': str,
-                'allow_repairs': bool, 'redeploy_level': self.inter, 'use_best_only': bool,
+                'allow_repairs': bool, 'redeploy_level': self.inter, 'use_best_only': bool, 'allow_early_deploy': bool,
                 'new_server_base': str, 'new_server_model': str, 'existing_server_model': str,
                 }
 
@@ -223,7 +223,7 @@ class ExcelInt:
 
         ctmo_limit, wtmo_limit, ptmo_limit, ceff_limit, weff_limit, peff_limit, window, \
             target_size, start_date, contract_length, start_month, \
-            non_replace_string, repair, junk_level, best, \
+            non_replace_string, repair, junk_level, best, early_deploy, \
             new_server_base, new_server_model, existing_server_model = values_keys
 
         allowed_fru_models, existing_servers_df = values_tables
@@ -242,7 +242,7 @@ class ExcelInt:
             repair = False
 
         return scenario_name, limits, target_size, start_date, contract_length, start_month, \
-            non_replace, repair, junk_level, best, \
+            non_replace, repair, junk_level, best, early_deploy, \
             new_servers, existing_servers, allowed_fru_models
 
     # total number of scenarios to explore

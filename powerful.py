@@ -104,7 +104,7 @@ class PowerCurves:
         if (time_needed > 0) and (time_needed <= len(expected_curve) - operating_time):
             energy = expected_curve.iloc[operating_time:operating_time+time_needed].sum()
         else:
-            energy = expected_curve.iloc[operating_time:].sum()
+            energy = expected_curve.iloc[operating_time:].sum() ## numpy.float64 error
         return energy
 
 # efficiency curves for a model type (NOT IMPLEMENTED)
@@ -196,7 +196,7 @@ class PowerModules:
         energies = [self.get_energy(model, mark, time_needed) for mark in marks]
         return energies
 
-# details of energy enclosures (NOT IMPLEMENTED)
+# details of energy enclosures
 class HotBoxes:
     def __init__(self, sql_db):
         self.sql_db = sql_db
@@ -205,7 +205,7 @@ class HotBoxes:
         model, rating = self.sql_db.get_enclosure_model(server_model)
         return model, rating
 
-# details of energy servers (NOT IMPLEMENTED)
+# details of energy servers
 class EnergyServers:
     def __init__(self, sql_db):
         self.sql_db = sql_db

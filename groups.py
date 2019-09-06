@@ -84,11 +84,12 @@ class Tweaks(Group):
         self.repair = kwargs.get('repair', False)
         self.junk_level = kwargs.get('junk_level')
         self.best = kwargs.get('best', True)
-        self.deploy_months = kwargs.get('deploy_months', 3) ##
+        self.early_deploy = kwargs.get('early_deploy')
 
         self.data = [['repair threshold', self.repair],
                      ['redeploy level', self.junk_level],
-                     ['use best FRU available', self.best]]
+                     ['use best FRU available', self.best],
+                     ['allow early deploy', self.early_deploy]]
 
 # collection of database modeling thresholds
 class Thresholds(Group):
