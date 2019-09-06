@@ -6,7 +6,7 @@ import fnmatch
 import io
 from xml.etree import ElementTree
 
-from pandas import ExcelFile
+from pandas import ExcelFile, to_numeric
 import xlrd
 import requests
 
@@ -153,6 +153,61 @@ class ExcelSeer:
 
                 self.data[(sheet_name, range_name.lower())] = workbook.sheet_by_name(sheet_name).cell(row, col).value
         return
+
+# read Excel data into SQL database
+class ExcelSQL:
+    def __init__(self, path, sql_db):
+        self.path = path
+        self.sql_db = sql_db
+        
+        self.excel_seer = ExcelSeer(path)
+
+    # import new curves to database
+    def import_curves(self, curve_name, period):
+        table_name = {'power': {'quarter': 'PowerCurveQ', 'month': 'PowerCurveM'},
+                      'efficiency': {'month': 'EfficiencyCurve'}}[curve_name][period]
+
+        curves = self.excel_seer[(None, table_name)]
+
+        # remove values without model and mark
+        if curves is not None:
+            curves = curves.dropna(how='any', subset=['model', 'mark'])
+
+            value_vars = [int(s) for s in curves.columns if (type(s) is str) and (s.isdigit())]
+            renames = {str(i): i for i in value_vars}
+            curves.rename(columns=renames, inplace=True)
+            curves_melted = curves.melt(id_vars=['model', 'mark', 'percentile'],
+                                        value_vars=value_vars,
+                                        var_name=period, value_name='kw')
+            
+            curves_melted.loc[:, 'kw'] = curves_melted['kw'].apply(to_numeric, errors='coerce')
+            curves_melted.drop_duplicates(inplace=True)
+
+        else:
+            curves_melted = None
+
+        return curves_melted
+
+    # import new power curves to database
+    def import_power_curves(self):
+        for period in ['month', 'quarter']:
+            power_curves = self.import_curves('power', period)
+            if power_curves is not None:
+                self.sql_db.write_power_curves(power_curves)
+        return
+
+    # import new efficiency curves to database
+    def import_efficiency_curves(self):
+        for period in ['month']:
+            efficiency_curves = self.import_curves('efficiency', period)
+            if efficiency_curves is not None:
+                self.sql_db.write_efficiency_curves(efficiency_curves)
+        return
+
+    # import all new curves to database
+    def import_all_curves(self):
+        self.import_power_curves()
+        self.import_efficiency_curves()
 
 # read in Excel file for project inputs
 class ExcelInt:
