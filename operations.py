@@ -173,11 +173,11 @@ class Shop:
         return cost
 
     # copy a FRU from a template
-    def create_fru(self, model, mark, install_date, site_number, server_number, enclosure_number, initial=False, fit=None, reason=None):
+    def create_fru(self, model, mark, install_date, site_number, server_number, enclosure_number, initial=False, current_date=None, fit=None, reason=None):
         serial = self.get_serial('PWM')
         
         # check if template already created to reduce calls to DB
-        fru = self.templates.find_module(model, mark).copy(serial, install_date, current_date=install_date, fit=fit)
+        fru = self.templates.find_module(model, mark).copy(serial, install_date, current_date=current_date if current_date is not None else install_date, fit=fit)
 
         # get costs
         if initial:
@@ -422,6 +422,19 @@ class Shop:
         self.transact(server.serial, server.model, server.model_number, nameplate, None,
                      'upgraded ES', 'at', site_number, server.number, None, cost, reason=reason)
         pass
+
+    # upgrade components on enclosure to allow more power throughput for new module tech
+    def upgrade_enclosures(self, site_number, server, new_fru, reason=None):
+        cost = self.get_cost('upgrade enclosure')
+
+        new_enclosure_model, new_enclosure_rating = self.hot_boxes.get_model(new_fru.model)
+
+        for enclosure in server.enclosures:
+            enclosure.model = new_enclosure_model
+            enclosure.rating = new_enclosure_rating
+            self.transact(enclosure.serial, enclosure.model, None, None, None, 'increase enclosure rating',
+                          'at', site_number, server.number, enclosure.number, cost, reason)
+        return
     
     # return nameplate rating of server model
     def get_server_nameplate(self, server_model):

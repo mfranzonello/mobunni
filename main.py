@@ -3,6 +3,7 @@
 from math import floor
 
 from structure import Project, SQLDB
+from api import APC
 from xl_inputs import ExcelInt
 from xl_outputs import Excelerator, ExcelePaint
 from groups import Details, Commitments, Technology, Tweaks, Thresholds
@@ -37,11 +38,13 @@ def get_details(excel_int):
     return details
 
 # build scenario
-def get_scenario(excel_int, scenario_number):
+def get_scenario(excel_int, scenario_number, apc):
     print('Getting scenario {} details'.format(scenario_number+1))
     scenario_name, limits, target_size, start_date, contract_length, start_month, \
         non_replace, repair, junk_level, best, early_deploy, \
-        new_servers, existing_servers, allowed_fru_models = excel_int.get_scenario(scenario_number)
+        site_code, new_servers, allowed_fru_models = excel_int.get_scenario(scenario_number)
+
+    existing_servers = apc.get_site_performance(site_code)
 
     commitments = Commitments(length=contract_length, target_size=target_size, start_date=start_date,
                               start_month=start_month, non_replace=non_replace, limits=limits)
@@ -75,7 +78,7 @@ def save_results(project, scenario, simulation):
     excelerator.to_excel(start=open_results)
 
 # run scenarios
-def run_scenarios(project, excel_int, details, sql_db, thresholds):
+def run_scenarios(project, excel_int, details, sql_db, thresholds, apc):
     for scenario_number in range(details.n_scenarios):
         scenario = get_scenario(excel_int, scenario_number)
         
@@ -87,5 +90,7 @@ def run_scenarios(project, excel_int, details, sql_db, thresholds):
 project, excel_int = get_project()
 sql_db, thresholds = get_structure(structure_db)
 details = get_details(excel_int)
-run_scenarios(project, excel_int, details, sql_db, thresholds)
+apc = APC()
+
+run_scenarios(project, excel_int, details, sql_db, thresholds, apc)
 StopWatch.show_results()

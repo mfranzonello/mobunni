@@ -69,7 +69,7 @@ class Technology(Group):
 
     # check if there are existing servers
     def has_existing_servers(self):
-        existing = len(self.existing_servers['df']) > 0
+        existing = len(self.existing_servers) > 0
         return existing
 
     # check if new server model is given

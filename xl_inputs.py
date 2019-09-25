@@ -139,10 +139,11 @@ class ExcelSeer:
     # find all named range values (single cell)
     def _get_named_ranges(self):
         workbook = xlrd.open_workbook(self.file)
+
         for range_name, sheet_num in workbook.name_and_scope_map:
             cell_obj = workbook.name_and_scope_map[(range_name, sheet_num)]
 
-            if '!' in cell_obj.formula_text:
+            if (cell_obj.formula_text != '#REF!') and ('!' in cell_obj.formula_text):
                 (sheet_name, ref) = cell_obj.formula_text.split('!')
                 (discard, col_str, row_str) = ref.split('$')
                 col = 0
@@ -171,6 +172,9 @@ class ExcelSQL:
 
         # remove values without model and mark
         if curves is not None:
+            value_name = {'power': 'kw',
+                          'efficiency': 'pct'}[curve_name]
+
             curves = curves.dropna(how='any', subset=['model', 'mark'])
 
             value_vars = [int(s) for s in curves.columns if (type(s) is str) and (s.isdigit())]
@@ -178,9 +182,9 @@ class ExcelSQL:
             curves.rename(columns=renames, inplace=True)
             curves_melted = curves.melt(id_vars=['model', 'mark', 'percentile'],
                                         value_vars=value_vars,
-                                        var_name=period, value_name='kw')
+                                        var_name=period, value_name=value_name)
             
-            curves_melted.loc[:, 'kw'] = curves_melted['kw'].apply(to_numeric, errors='coerce')
+            curves_melted.loc[:, value_name] = curves_melted[value_name].apply(to_numeric, errors='coerce')
             curves_melted.drop_duplicates(inplace=True)
 
         else:
@@ -268,10 +272,10 @@ class ExcelInt:
                 'ceff_limit': self.floater, 'weff_limit': self.floater, 'peff_limit': self.floater, 'window': self.inter,
                 'target_size': float, 'start_date': self.xldate, 'contract_length': int, 'contract_start': float, 'nonreplace': str,
                 'allow_repairs': bool, 'redeploy_level': self.inter, 'use_best_only': bool, 'allow_early_deploy': bool,
-                'new_server_base': str, 'new_server_model': str, 'existing_server_model': str,
+                'new_server_base': str, 'new_server_model': str, 'site_code': str,
                 }
 
-        tables = ['AllowedModules', 'ExistingServers']
+        tables = ['AllowedModules']
 
         values_keys = self.get_sheet_named_ranges(scenario_name, keys)
         values_tables = self.get_sheet_tables(scenario_name, tables)
@@ -289,7 +293,7 @@ class ExcelInt:
         non_replace = [int(float(x)) for x in non_replace_string.split(',')] if len(non_replace_string) else []
 
         new_servers = {'base': new_server_base, 'model': new_server_model}
-        existing_servers = {'df': existing_servers_df, 'model': existing_server_model}
+        
         if allowed_fru_models['model'].dropna().empty:
             allowed_fru_models = None
         
@@ -298,7 +302,7 @@ class ExcelInt:
 
         return scenario_name, limits, target_size, start_date, contract_length, start_month, \
             non_replace, repair, junk_level, best, early_deploy, \
-            new_servers, existing_servers, allowed_fru_models
+            site_code, new_servers, allowed_fru_models
 
     # total number of scenarios to explore
     def count_scenarios(self):

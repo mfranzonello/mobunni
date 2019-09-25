@@ -253,10 +253,10 @@ class SQLDB:
 
     # select efficiency curves for a power module model
     def get_efficiency_curve(self, model, mark):
-        sql = 'SELECT month, kw FROM EfficiencyCurve WHERE model IS "{}" and mark IS "{}"'.format(model, mark)
+        sql = 'SELECT month, pct FROM EfficiencyCurve WHERE model IS "{}" and mark IS "{}"'.format(model, mark)
         efficiency_curve = read_sql(sql, self.connection)
         efficiency_curve.index = efficiency_curve.loc[:, 'month']-1
-        efficiency_curve = efficiency_curve['kw'].dropna(how='all')
+        efficiency_curve = efficiency_curve['pct'].dropna(how='all')
 
         return efficiency_curve
 

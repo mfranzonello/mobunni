@@ -198,34 +198,31 @@ class Site:
     # add existing FRUs to site
     def populate_existing(self, existing_servers):
         # house existing frus in corresponding servers
-        df = existing_servers['df']
-        server_numbers = df['server #'].unique().tolist()
+        server_numbers = existing_servers.keys()
             
-        for server_n in server_numbers:
+        for server_number in server_numbers:
             # loop through servers
-            server_model = existing_servers['model']
+            server_model = existing_servers[server_number]['model']
 
-            server_details = df[df['server #']==server_n]
-            n_enclosures = len(server_details)
-            server_number = server_numbers.index(server_n)
+            server_frus = existing_servers[server_number]['frus']
+            
             server = self.shop.create_server(self.number, server_number, server_model_number=server_model)
                 
             #enclosure_number = 0
-            for pwm in server_details.index:
+            for pwm in existing_servers[server_n]['frus']:
                 # loop through power modules
-                if not (isnull(server_details.loc[pwm, 'FRU model'])):
-                    # install FRU if enclosure not empty
+                enclosure_number = server.get_empty_enclosure()
 
-                    enclosure_number = server.get_empty_enclosure()
+                fru_model, fru_mark = SOMETHING, SOMETHING
+                fru_fit = server_frus[pwm]['performance']
+                fru_date = server_frus[pwm]['install date']
+                operating_time = server_frus[pwm]['operating time']
+                
+                fru = self.shop.create_fru(fru_model, fru_mark, fru_date, self.number, server_number, enclosure_number,
+                                            initial=True, current_date=fru_date + relativedelta(months=operating_time), fit=fru_fit,
+                                            reason='populating enclosure')
 
-                    fru_model, fru_mark, fru_power, fru_date = server_details.loc[pwm, ['FRU model', 'FRU mark', 'FRU pwr', 'install date']]
-                    operating_time = relativedelta(self.get_date(), fru_date)
-                    fru_fit = {'operating time': operating_time.years*12 + operating_time.months, 'current power': fru_power}
-                    
-                    fru = self.shop.create_fru(fru_model, fru_mark, fru_date, self.number, server_number, enclosure_number,
-                                                initial=True, fit=fru_fit, reason='populating enclosure')
-
-                    server.replace_fru(enclosure_number, fru)
+                server.replace_fru(enclosure_number, fru)
                 
             # add server to site
             self.add_server(server)
@@ -297,7 +294,12 @@ class Site:
 
     # swap FRU and send old one to shop (if not empty)
     def replace_fru(self, server_number, enclosure_number, fru):
-        old_fru = self.servers[server_number].replace_fru(enclosure_number=enclosure_number, fru=fru)
+        server = self.servers[server_number]
+        old_fru = server.replace_fru(enclosure_number=enclosure_number, fru=fru)
+
+        # check if enclosure rating can handle FRU model
+        if (fru is not None) and (fru.get_power() > server.enclosures[enclosure_number].rating):
+            self.shop.upgrade_enclosures(self.number, server, fru, reason='more power needed than enclosure rating limit')
         return old_fru
 
     # move FRUs around to minimize ceiling loss

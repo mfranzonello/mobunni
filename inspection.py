@@ -297,11 +297,11 @@ class Inspector:
         if cumulative:
             # estimate final CTMO if FRUs degrade as expected and add FRUs if needed, with padding
 
-            StopWatch.timer('get expected CTMO')
+            ##StopWatch.timer('get expected CTMO')
             expected_ctmo = (site.get_energy_produced() + site.get_energy_remaining()) / (site.contract.length * 12) / site.system_size
             server_dc, enclosure_dc = Inspector.get_worst_fru(site, 'energy')
             max_power, installable = Inspector.check_max_power(site)
-            StopWatch.timer('get expected CTMO')
+            ##StopWatch.timer('get expected CTMO')
 
             while installable and \
                 Inspector.check_fail(site, expected_ctmo, site.limits['CTMO'], pad=site.shop.thresholds['tmo pad']) and \

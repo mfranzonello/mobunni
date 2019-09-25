@@ -43,25 +43,12 @@ class PowerCurves:
                     if (percentile >= allowed[0]) & (percentile <= allowed[-1])]]
 
         else:
-            # FRU has alreay been in the field
-            expected_range = self.curves.loc[min(len(self.curves)-1, fit['operating time'])]
-            observed_power = fit['current power']
-
-            if observed_power > expected_range.max():
-                # operating better than expected, so choose ideal curve
-                allowed_curves = self.get_allowed_curves(allowed='ideal').copy()
-
-            elif observed_power < expected_range.min():
-                # operating worse than expected, so choose worst curve and scale down
-                allowed_curves = self.get_allowed_curves(allowed='worst').copy()
-                allowed_curves.loc[0:, :] *= (observed_power / expected_range.min())
-
-            else:
-                # operating in expected range, so choose from range of possibilities
-                allowed_curves = self.curves[\
-                    ((self.curves.loc[fit['operating time']] >= fit['current power']) & \
-                     (self.curves.loc[fit['operating time']] <= fit['current power'])).index]
-
+            # FRU has alreay been in the field, find least error
+            errors = self.curves.loc[0:len(fit), :].sub(fit['kw'], axis=1).pow(2).sum()
+            allowed_curves = self.curves.loc[:, errors[errors == errors.min()].index.to_list()]
+            for c in allowed_curves.columns:
+                allowed_curves.len[0:len(fit), c] = fit['kw'].values
+        
         return allowed_curves
         
     # normalize probabilities for percentile selection

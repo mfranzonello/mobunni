@@ -164,6 +164,7 @@ class Enclosure:
     def __init__(self, serial, number, model, rating):
         self.serial = serial
         self.number = number
+        self.model = model
         self.fru = None
 
         self.rating = rating ## maximum amount of power output
@@ -259,16 +260,22 @@ class Server:
 
     # estimate the remaining energy in server FRUs
     def get_energy(self, months=None):
-        curves = concat([enclosure.fru.get_expected_curve()[enclosure.fru.get_month():] for enclosure in self.enclosures \
-            if enclosure.is_filled() and not enclosure.fru.is_dead()], axis='columns', ignore_index=True)
-        #curves.index = range(len(curves))
+        curves_to_concat = [enclosure.fru.get_expected_curve()[enclosure.fru.get_month():] for enclosure in self.enclosures \
+            if enclosure.is_filled() and not enclosure.fru.is_dead()]
 
-        if months is not None:
-            curves = curves.iloc[:months, :]
+        if not len(curves_to_concat): # bug with no live FRUs?
+            energy = 0
 
-        # cap at nameplate rating
-        potential = curves.sum('columns')
-        energy = potential.where(potential < self.nameplate, self.nameplate).sum()
+        else:
+            curves = concat(curves_to_concat, axis='columns', ignore_index=True)
+            #curves.index = range(len(curves))
+
+            if months is not None:
+                curves = curves.iloc[:months, :]
+
+            # cap at nameplate rating
+            potential = curves.sum('columns')
+            energy = potential.where(potential < self.nameplate, self.nameplate).sum()
 
         return energy
 
