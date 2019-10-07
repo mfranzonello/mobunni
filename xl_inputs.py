@@ -27,20 +27,21 @@ class ExcelSeer:
         self._get_named_ranges()
 
     def __repr__(self):
-        string1 = 'Filename: {}\n'.format(self.file)
-        string2 = 'Tables:\n' + ''.join(' {}: sheet {}, range {}\n'.format(self.tables[t]['name'],
-                                                                           self.tables[t]['sheet_name'],
-                                                                           self.tables[t]['ref']) for t in self.tables)
-        string = string1 + string2
-        return string
+        string_filename = 'Filename: {}\n'.format(self.file)
+        string_tables = 'Tables:\n' + ''.join(' {}: sheet "{}", range "{}"\n'.format(self.tables[t]['name'],
+                                                                                 self.tables[t]['sheet_name'],
+                                                                                 self.tables[t]['ref']) for t in self.tables)
+        string_named_ranges = 'Named ranges:\n' + ''.join(' {}: sheet "{}", value {}\n'.format(r_n, s_n, self.data[(s_n, r_n)]) for (s_n, r_n) in self.data)
+        string_all = string_filename + string_tables + string_named_ranges
+        return string_all
 
     def __getitem__(self, location):
         sheet_name, item_name = location
 
         if sheet_name is None:
-            matches = [(sheet, name) for (sheet, name) in self.data if item_name.lower() in name]
+            matches = [(sheet, name) for (sheet, name) in self.data if item_name.lower() in name.lower()]
         else:
-            matches = [(sheet, name) for (sheet, name) in self.data if (sheet == sheet_name.lower()) and (item_name.lower() in name)]
+            matches = [(sheet, name) for (sheet, name) in self.data if (sheet.lower() == sheet_name.lower()) and (item_name.lower() in name.lower())]
         
         value = self.data[matches[0]] if len(matches) else None
         return value
@@ -115,9 +116,9 @@ class ExcelSeer:
         self.data = dataframes
 
     # translate Excel reference to pandas numbers
-    def _split_range(self, string):
-        left = string[0:string.index(':')]
-        right = string[string.index(':')+1:]
+    def _split_range(self, string_value):
+        left = string_value[0:string_value.index(':')]
+        right = string_value[string_value.index(':')+1:]
         letters = []
         numbers = []
         for side in [left, right]:
@@ -226,19 +227,19 @@ class ExcelInt:
         return date
 
     # return floats where possible
-    def floater(self, string):
-        value = self.floatint(string, float)
+    def floater(self, string_value):
+        value = self.floatint(string_value, float)
         return value
 
     # return integers where possible
-    def inter(self, string):
-        value = self.floatint(string, int)
+    def inter(self, string_value):
+        value = self.floatint(string_value, int)
         return value
 
     # return float or interger
-    def floatint(self, string, func):
+    def floatint(self, string_value, func):
         try:
-            return func(string)
+            return func(string_value)
         except ValueError:
             return None
         return
@@ -280,12 +281,12 @@ class ExcelInt:
         values_keys = self.get_sheet_named_ranges(scenario_name, keys)
         values_tables = self.get_sheet_tables(scenario_name, tables)
 
-        ctmo_limit, wtmo_limit, ptmo_limit, ceff_limit, weff_limit, peff_limit, window, \
+        [ctmo_limit, wtmo_limit, ptmo_limit, ceff_limit, weff_limit, peff_limit, window, \
             target_size, start_date, contract_length, start_month, \
             non_replace_string, repair, junk_level, best, early_deploy, \
-            new_server_base, new_server_model, existing_server_model = values_keys
+            new_server_base, new_server_model, site_code] = values_keys
 
-        allowed_fru_models, existing_servers_df = values_tables
+        [allowed_fru_models] = values_tables
 
         limits = {'CTMO': ctmo_limit, 'WTMO': wtmo_limit, 'PTMO': ptmo_limit,
                   'Ceff': ceff_limit, 'Weff': weff_limit, 'Peff': peff_limit,

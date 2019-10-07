@@ -44,7 +44,11 @@ def get_scenario(excel_int, scenario_number, apc):
         non_replace, repair, junk_level, best, early_deploy, \
         site_code, new_servers, allowed_fru_models = excel_int.get_scenario(scenario_number)
 
-    existing_servers = apc.get_site_performance(site_code)
+    existing_servers = apc.get_existing_servers(site_code)
+
+    if existing_servers.exist():
+        target_size = existing_servers.get_size()
+        start_date, start_month = existing_servers.get_dates()
 
     commitments = Commitments(length=contract_length, target_size=target_size, start_date=start_date,
                               start_month=start_month, non_replace=non_replace, limits=limits)
@@ -80,7 +84,7 @@ def save_results(project, scenario, simulation):
 # run scenarios
 def run_scenarios(project, excel_int, details, sql_db, thresholds, apc):
     for scenario_number in range(details.n_scenarios):
-        scenario = get_scenario(excel_int, scenario_number)
+        scenario = get_scenario(excel_int, scenario_number, apc)
         
         # run simulation
         simulation = run_simulation(details, scenario, sql_db, thresholds)

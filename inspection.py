@@ -38,11 +38,11 @@ class Monitor:
         power_eff = DataFrame(columns=['date'])
         power_eff.loc[:, 'date'] = self.contract_date_range
 
-        reindex = Monitor.power_eff_columns + ['ES{}|{}'.format(s_n, e_n) \
-            for s_n in range(len(servers)) \
-            for e_n in ['ENC{}'.format(f_n) for f_n in range(len(servers[s_n].enclosures))] + ceiling]
+        reindex = Monitor.power_eff_columns + ['ES{}|{}'.format(server_number, e_n) \
+            for server_number in servers \
+            for e_n in ['ENC{}'.format(f_n) for f_n in range(len(servers[server_number].enclosures))] + ceiling]
 
-        drop = ['ES{}|{}'.format(s_n, e_n) for s_n in range(len(servers)) for e_n in ceiling]
+        drop = ['ES{}|{}'.format(server_number, e_n) for server_number in servers for e_n in ceiling]
 
         self._power = power_eff.reindex(reindex, axis='columns')
         self._efficiency = self._power.drop(drop, axis='columns')
@@ -87,7 +87,7 @@ class Monitor:
 class Inspector:
     # see if swapping FRUs minimizes ceiling loss
     def look_for_balance(site):
-        nameplates = Series([server.nameplate for server in site.servers])
+        nameplates = Series([server.nameplate for server in site.get_servers()])
         fru_powers = site.get_fru_power()
         server_powers = fru_powers.sum(axis='columns')
 
@@ -118,7 +118,7 @@ class Inspector:
                 potentials_unstacked = potentials.unstack().isnull()
 
                 if potentials_unstacked.isnull().all():
-                    enclosure_2, server_2 = [None, None]
+                    enclosure_2, server_2 = [None]*2
                 else:
                     enclosure_2, server_2 = potentials_unstacked.idxmax()
 
@@ -166,24 +166,24 @@ class Inspector:
     def get_replaceable_frus(site, by):
         if by in ['power', 'energy']:
             replaceable = [[enclosure.fru.is_degraded(site.shop.thresholds['degraded']) \
-                if enclosure.is_filled() else True for enclosure in server.enclosures] for server in site.servers]
+                if enclosure.is_filled() else True for enclosure in server.enclosures] for server in site.get_servers()]
 
         elif by in ['efficiency']:
             replaceable = [[enclosure.fru.is_inefficient(site.shop.thresholds['inefficient']) \
-                if enclosure.is_filled() else True for enclosure in server.enclosures] for server in site.servers]
+                if enclosure.is_filled() else True for enclosure in server.enclosures] for server in site.get_servers()]
 
-        replaceable_frus = DataFrame(data=replaceable)
+        replaceable_frus = DataFrame(data=replaceable, index=site.get_server_numbers())
 
         return replaceable_frus
 
     # location of the worst performing FRU
     def get_worst_fru(site, by):
-        fillable_servers = [s for s in range(len(site.servers)) if site.servers[s].has_empty(dead=True)]
+        fillable_servers = [server for server in site.get_servers() if server.has_empty(dead=True)]
 
         if len(fillable_servers):
             # if there is an empty slot, pick this first!
-            headroom = [site.servers[server].get_headroom() for server in fillable_servers]
-            server_number = fillable_servers[headroom.index(max(headroom))]
+            headroom = [server.get_headroom() for server in fillable_servers]
+            server_number = fillable_servers[headroom.index(max(headroom))].number
             enclosure_number = site.servers[server_number].get_empty_enclosure(dead=True)
 
         else:
@@ -200,26 +200,25 @@ class Inspector:
                 server_nameplates = site.get_server_nameplates()
                 replaceable_servers = power.where(power.sum('columns') < server_nameplates, float('nan'))
                 replaceable_enclosures = replaceable_servers.where(replaceable_frus, float('nan'))
-
+                
             elif by == 'energy':
                 # CTMO or WTMO failure, for early deploy
                 energy = site.get_fru_energy()
+
                 replaceable_enclosures = energy.where(replaceable_frus, float('nan'))
-                ##print('ENERGY REPLACEABLES')
-                ##print(replaceable_enclosures)
-                
+               
             elif by == 'efficiency':
                 efficiency = site.get_fru_efficiency()
-                replaceable_enclosures = efficiency.where(replaceable_frus, float('nan'))
+                replaceable_enclosures = efficiency.where(replaceable_frus, float('nan'))               
 
             # pick least well performing FRU
             if replaceable_enclosures.any().any():
                 # there is a FRU that can be replaced
                 server_number, enclosure_number = replaceable_enclosures.stack().idxmin()
+
             else:
                 # there are no FRUs that can be replaced
-                server_number = None   
-                enclosure_number = None
+                server_number, enclosure_number = [None]*2
                 
         return server_number, enclosure_number
 
@@ -229,7 +228,7 @@ class Inspector:
         commitments, fails = site.store_performance()
 
         # check if FRUs can be replaced this year
-        replaceable = site.contract.is_replaceable_year(site.get_year())
+        replaceable = site.contract.is_replaceable_time(month=site.get_month(), year=site.get_year())
         early_replaceable = site.get_years_remaining() > site.shop.thresholds['no deploy']
         last_replaceable = site.get_months_remaining() == site.shop.thresholds['no deploy']*12 + 1
         if replaceable and early_replaceable:
@@ -256,13 +255,13 @@ class Inspector:
                     commitments, fails, server_p, enclosure_p, server_e, enclosure_e = Inspector.check_tmo(site, commitments, fails, server_p, enclosure_p)
 
                 if Inspector.check_exists(server_e, enclosure_e) and fails['efficiency']:
-                    commitments, fails, server_p, enclosure_p, server_e, enclosure_e = Inspector.check_efficiency(site, commitments, server_e, enclosure_e)
+                    commitments, fails, server_p, enclosure_p, server_e, enclosure_e = Inspector.check_efficiency(site, commitments, fails, server_e, enclosure_e)
 
         return
         
     # look for repair opportunities
     def check_repairs(site):
-        for server in site.servers:
+        for server in site.get_servers():
             for enclosure in server.enclosures:
                 if enclosure.is_filled() and enclosure.fru.is_deviated(site.shop.thresholds['deviated']):
                     # FRU must be repaired
@@ -430,9 +429,18 @@ class Inspector:
         return commmitments, fails, server_p, enclosure_p, server_e, enclosure_e
 
     # look for FRUs replacements to meet efficiency commitment
-    def check_efficiency(site, commitments, server_e, enclosure_e):
+    def check_efficiency(site, commitments, fails, server_e, enclosure_e):
         # match power, energy and remaining life of replacing FRU
-        reason = None
+        if fails['Ceff']:
+            reason_fail = 'Ceff'
+
+        elif fails['Weff']:
+            reason_fail = 'Weff'
+
+        elif fails['Peff']:
+            reason_fail = 'Peff'
+
+        reason = '{} {:0.02%} below limit {:0.02%}'.format(reason_fail, commitments[reason_fail], site.limits[reason_fail])
 
         server = site.servers[server_e]
         if server.enclosures[enclosure_e].is_filled():

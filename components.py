@@ -205,6 +205,15 @@ class Enclosure:
         energy = self.fru.get_energy(months=months) if not self.is_empty() else 0
         return energy
 
+    # get efficiency of FRU if not empty
+    def get_efficiency(self, lookahead=None):
+        if self.is_empty():
+            efficiency = 0
+        else:
+            efficiency = self.fru.get_efficiency(lookahead=lookahead)
+
+        return efficiency
+
 # housing unit for power modules
 class Server:
     def __init__(self, serial, number, model, model_number, nameplate):

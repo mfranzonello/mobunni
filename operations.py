@@ -307,6 +307,25 @@ class Shop:
             queues = list(range(len(self.deployable)))
         return queues
 
+    # get lastest version of energy server, power module or hotbox
+    def get_latest_model(self, category, base_model, install_date=None, **kwargs):
+        if category == 'server':
+            model = self.energy_servers.get_latest_server_model(install_date, base_model, **kwargs)
+            return model
+
+        elif category == 'module':
+            module = self.power_modules.get_model(install_date, best=True, server_model=base_model, **kwargs)
+            if module is not None:
+                model, mark = module
+            else:
+                model, mark = [None]*2
+
+            return model, mark
+
+        elif category == 'enclosure':
+            model = self.hot_boxes.get_model(base_model, **kwargs)
+            return model
+
     # use a stored FRU or create a new one for power and energy requirements
     def get_best_fit_fru(self, server_model, install_date, site_number, server_number, enclosure_number,
                          power_needed=0, energy_needed=0, time_needed=0, max_power=None, initial=False, reason=None):
@@ -389,13 +408,15 @@ class Shop:
         return server_model_number, server_count
 
     # create a new energy server
-    def create_server(self, site_number, server_number, server_model_number=None, server_model_class=None, nameplate_needed=0,
+    def create_server(self, site_number, server_number, server_model_number=None, server_model_class=None,
+                      nameplate_needed=0, n_enclosures=None,
                       reason='populating site'):
         serial = self.get_serial('ES')
 
         server_model = self.energy_servers.get_server_model(server_model_number=server_model_number,
                                                             server_model_class=server_model_class,
-                                                            nameplate_needed=nameplate_needed)
+                                                            nameplate_needed=nameplate_needed,
+                                                            n_enclosures=n_enclosures)
         
         server = Server(serial, server_number, server_model['model'], server_model['model_number'], server_model['nameplate'])
 

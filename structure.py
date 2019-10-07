@@ -168,8 +168,8 @@ class SQLDB:
         return server_nameplates
 
     # select server model based on model number or model class + nameplate
-    def get_server_model(self, server_model_number=None, server_model_class=None, nameplate_needed=0):
-        sql = 'SELECT model, model_number, nameplate, enclosures, plus_one FROM Server '
+    def get_server_model(self, server_model_number=None, server_model_class=None, nameplate_needed=0, n_enclosures=None):
+        sql = 'SELECT * FROM Server '
         
         if server_model_number is not None:
             sql += 'WHERE model_number IS "{}"'.format(server_model_number)
@@ -180,21 +180,38 @@ class SQLDB:
         server_details = read_sql(sql, self.connection)
 
         if server_model_number is None:
-            if len(server_details[\
+            # need a specific nameplate and enclosure count
+            if (nameplate_needed > 0) and (n_enclosures is not None) and \
+                len(server_details[\
                     (server_details['nameplate'] == nameplate_needed) & \
-                    (server_details['standard'] == 1)]):
+                    (server_details['enclosures'] + server_details['plus_one'] == n_enclosures)]): ## pick standard first?
+
                 server_details = server_details[\
                     (server_details['nameplate'] == nameplate_needed) & \
-                    (server_details['standard'] == 1)].iloc[0]
+                    (server_details['enclosures'] + server_details['plus_one'] == n_enclosures)]
+
+            # need a specific nameplate that is standard
+            elif len(server_details[\
+                    (server_details['nameplate'] == nameplate_needed) & \
+                    (server_details['standard'] == 1)]):
+
+                server_details = server_details[\
+                    (server_details['nameplate'] == nameplate_needed) & \
+                    (server_details['standard'] == 1)]
+            
+            # need a specific nameplate, no standard specified
             elif len(server_details[\
                     (server_details['nameplate'] == nameplate_needed) & \
                     (server_details['plus_one'] == 1)]):
+
                 server_details = server_details[\
                     (server_details['nameplate'] == nameplate_needed) & \
                     (server_details['plus_one'] == 1)].sort_values('enclosures')
+
+            # need best fit nameplate
             else:
                 server_details = server_details[server_details['nameplate'] <= nameplate_needed].sort_values(['nameplate', 'plus_one', 'enclosures'], ascending=False)
-                
+               
         server_model = server_details.iloc[0]
 
         return server_model

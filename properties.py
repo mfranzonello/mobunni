@@ -2,6 +2,7 @@
 
 from dateutil.relativedelta import relativedelta
 from math import ceil, floor
+from statistics import mode
 
 from pandas import DataFrame, Series, isnull
 from numpy import nan
@@ -24,7 +25,7 @@ class Site:
         self.monitor = Monitor(self.number, self.contract.start_date, self.contract.length, self.windowed)
 
         self.server_model = None
-        self.servers = []
+        self.servers = {}
 
         self.month = contract.start_month
 
@@ -41,7 +42,7 @@ class Site:
                     ceiling_string)
 
         line_string = '='*20
-        server_string = '\n'.join([line_string] + [str(server) for server in self.servers] + [line_string])
+        server_string = '\n'.join([line_string] + [str(server) for server in self.get_servers()] + [line_string])
         string = '{}\n{}'.format(site_string, server_string)
         return string
 
@@ -82,30 +83,41 @@ class Site:
 
     # sum up to nameplate rating of each installed energy server
     def get_system_size(self):
-        size = sum(server.nameplate if not server.is_empty() else 0 for server in self.servers)
+        size = sum(server.nameplate if not server.is_empty() else 0 for server in self.get_servers())
         return size
+
+    # return array of servers
+    def get_servers(self):
+        servers = [self.servers[server_number] for server_number in self.servers]
+        return servers
+
+    # return array of server numbers
+    def get_server_numbers(self):
+        server_numbers = [server_number for server_number in self.servers]
+        return server_numbers
 
     # add a server with empty enclosures to site
     def add_server(self, server):
-        self.servers.append(server)
+        self.servers[server.number] = server
 
     # current power output of all frus on site
     def get_fru_power(self, lookahead=None):
-        fru_power = DataFrame(data=[[enclosure.get_power(lookahead=lookahead) for enclosure in server.enclosures] for server in self.servers])
+        fru_power = DataFrame(data=[[enclosure.get_power(lookahead=lookahead) for enclosure in server.enclosures] for server in self.get_servers()],
+                              index=self.get_server_numbers())
 
         return fru_power
 
     # current overall power output of site
     def get_site_power(self, lookahead=None):
         # find potential power output of frus at each server
-        site_power = sum([server.get_power(lookahead=lookahead) for server in self.servers])
+        site_power = sum([server.get_power(lookahead=lookahead) for server in self.get_servers()])
 
         return site_power
 
     # estimate the remaining energy in all FRUs
     def get_fru_energy(self):
-        fru_energy = DataFrame(data=[[enclosure.fru.get_energy() if enclosure.is_filled() else 0 \
-            for enclosure in server.enclosures] for server in self.servers])
+        fru_energy = DataFrame(data=[[enclosure.get_energy() for enclosure in server.enclosures] for server in self.get_servers()],
+                               index=self.get_server_numbers())
         
         return fru_energy
 
@@ -120,18 +132,18 @@ class Site:
 
     # estimate the remaining energy in all servers
     def get_energy_remaining(self):
-        site_energy = sum(server.get_energy(months=self.get_months_remaining()) for server in self.servers)
+        site_energy = sum(server.get_energy(months=self.get_months_remaining()) for server in self.get_servers())
         return site_energy
 
     # series of server nameplate ratings
     def get_server_nameplates(self):
-        server_nameplates = Series([server.nameplate for server in self.servers])
+        server_nameplates = Series([server.nameplate for server in self.get_servers()], index=self.get_server_numbers())
         return server_nameplates
 
     # current efficiency of all FRUs on site
     def get_fru_efficiency(self):
-        fru_efficiency = DataFrame(data=[[enclosure.fru.get_efficiency() if enclosure.is_filled() else 0 \
-            for enclosure in server.enclosures] for server in self.servers])
+        fru_efficiency = DataFrame(data=[[enclosure.get_efficiency() for enclosure in server.enclosures] for server in self.get_servers()],
+                                   index=self.get_server_numbers())
 
         return fru_efficiency
 
@@ -154,12 +166,12 @@ class Site:
 
     # power that is lost due to nameplate capacity per server
     def get_server_ceiling_loss(self):
-        server_ceiling_loss = [server.get_ceiling_loss() for server in self.servers]
+        server_ceiling_loss = [server.get_ceiling_loss() for server in self.get_servers()]
         return server_ceiling_loss
 
     # power available due to nameplate capacity per server
     def get_server_headroom(self):    
-        server_headroom = [server.get_headroom() for server in self.servers]
+        server_headroom = [server.get_headroom() for server in self.get_servers()]
         return server_headroom
 
     # anticipate where modules could go without going over
@@ -168,7 +180,7 @@ class Site:
 
     # servers with at least one empty enclosure
     def get_server_has_empty(self):
-        server_has_empty = [server.has_empty() for server in self.servers]
+        server_has_empty = [server.has_empty() for server in self.get_servers()]
         return server_has_empty
 
     # at least one server with at least one empty enclosure
@@ -198,28 +210,33 @@ class Site:
     # add existing FRUs to site
     def populate_existing(self, existing_servers):
         # house existing frus in corresponding servers
-        server_numbers = existing_servers.keys()
+        server_numbers = existing_servers.get_server_numbers()
             
         for server_number in server_numbers:
             # loop through servers
             server_model = existing_servers[server_number]['model']
-
-            server_frus = existing_servers[server_number]['frus']
-            
-            server = self.shop.create_server(self.number, server_number, server_model_number=server_model)
+            nameplate_needed = existing_servers[server_number]['nameplate']
+            n_enclosures = len(existing_servers[server_number]['frus'])
+           
+            server = self.shop.create_server(self.number, server_number, server_model_class=server_model,
+                                             nameplate_needed=nameplate_needed, n_enclosures=n_enclosures)
                 
             #enclosure_number = 0
-            for pwm in existing_servers[server_n]['frus']:
+            for fru_number in existing_servers.get_fru_numbers(server_number):
                 # loop through power modules
                 enclosure_number = server.get_empty_enclosure()
 
-                fru_model, fru_mark = SOMETHING, SOMETHING
-                fru_fit = server_frus[pwm]['performance']
-                fru_date = server_frus[pwm]['install date']
-                operating_time = server_frus[pwm]['operating time']
-                
-                fru = self.shop.create_fru(fru_model, fru_mark, fru_date, self.number, server_number, enclosure_number,
-                                            initial=True, current_date=fru_date + relativedelta(months=operating_time), fit=fru_fit,
+                performance = existing_servers[server_number, fru_number]['performance']
+                operating_time = existing_servers[server_number, fru_number]['operating time']
+                fru_fit = {'performance': performance, 'operating time': operating_time.years + operating_time.months}
+
+                install_date = existing_servers[server_number, fru_number]['install date']
+                current_date = install_date + relativedelta(months=len(performance))
+
+                fru_model, fru_mark = self.shop.get_latest_model('module', server_model, install_date)
+ 
+                fru = self.shop.create_fru(fru_model, fru_mark, install_date, self.number, server_number, enclosure_number,
+                                            initial=True, current_date=current_date, fit=fru_fit,
                                             reason='populating enclosure')
 
                 server.replace_fru(enclosure_number, fru)
@@ -230,7 +247,7 @@ class Site:
         # set system size
         self.system_size = self.contract.target_size
         # set server model
-        self.server_model = self.shop.get_server_model(existing_servers['model'])
+        self.server_model = mode(server.model for server in self.get_servers())
 
     # add new FRUs to site
     def populate_new(self, new_servers):
@@ -258,7 +275,7 @@ class Site:
        
     # return usable FRUs at end of contract
     def decommission(self):
-        for server in self.servers:
+        for server in self.get_servers():
             for enclosure in server.enclosures:
                 if enclosure.is_filled():
                     old_fru = self.replace_fru(server.number, enclosure.number, None)
@@ -392,7 +409,7 @@ class Site:
 
 	# store power and efficiency at each FRU and server
     def store_fru_performance(self):
-        for server in self.servers:
+        for server in self.get_servers():
             for enclosure in server.enclosures:
                 if enclosure.is_filled():
                     power = enclosure.fru.get_power()
@@ -413,7 +430,7 @@ class Site:
 
     # degrade each server
     def degrade(self):       
-        for server in self.servers:
+        for server in self.get_servers():
             server.degrade()
 
         # move to next month

@@ -64,12 +64,14 @@ class Technology(Group):
         self.existing_servers = kwargs['existing_servers']
         self.allowed_fru_models = kwargs.get('allowed_fru_models')
 
-        self.data = [['new server model', self.new_servers['model'] if self.has_new_server_model() else self.new_servers['base']],
-                     ['existing server model', self.existing_servers['model'] if self.has_existing_servers() else None]]
+        if self.has_existing_servers():
+            self.data = [['existing server models', self.existing_servers.get_models()]]
+        else:
+            self.data = [['new server model', self.new_servers['model'] if self.has_new_server_model() else self.new_servers['base']]]
 
     # check if there are existing servers
     def has_existing_servers(self):
-        existing = len(self.existing_servers) > 0
+        existing = self.existing_servers.exist()
         return existing
 
     # check if new server model is given
