@@ -27,7 +27,7 @@ class Site:
         self.server_model = None
         self.servers = {}
 
-        self.month = contract.start_month
+        self.month = 0 ##contract.start_month
 
     def __str__(self):
         m_string = max(0, self.get_month()-1)
@@ -234,6 +234,9 @@ class Site:
                 current_date = install_date + relativedelta(months=len(performance))
 
                 fru_model, fru_mark = self.shop.get_latest_model('module', server_model, install_date)
+
+                ##print('FIT')
+                ##print(fru_fit)
  
                 fru = self.shop.create_fru(fru_model, fru_mark, install_date, self.number, server_number, enclosure_number,
                                             initial=True, current_date=current_date, fit=fru_fit,
@@ -359,9 +362,7 @@ class Site:
         self.monitor.store_result('performance', 'power', self.get_month(), power)
         self.monitor.store_result('power', 'total', self.get_month(), power)
 
-        ctmo_adj = self.contract.start_month/(self.get_month()+1)
-        ctmo = (self.monitor.get_result('performance', 'power', self.get_month(), function='mean') / self.system_size)*(1-ctmo_adj) + \
-            (self.monitor.get_starting_cumulative('tmo'))*ctmo_adj
+        ctmo = self.monitor.get_result('performance', 'power', self.get_month(), function='mean') / self.system_size
         self.monitor.store_result('performance', 'CTMO', self.get_month(), ctmo)
 
         if self.windowed:

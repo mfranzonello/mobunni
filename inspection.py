@@ -229,6 +229,7 @@ class Inspector:
 
         # check if FRUs can be replaced this year
         replaceable = site.contract.is_replaceable_time(month=site.get_month(), year=site.get_year())
+
         early_replaceable = site.get_years_remaining() > site.shop.thresholds['no deploy']
         last_replaceable = site.get_months_remaining() == site.shop.thresholds['no deploy']*12 + 1
         if replaceable and early_replaceable:

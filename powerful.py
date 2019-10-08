@@ -1,6 +1,6 @@
 # definitions for power and efficiency curves, power modules, hot boxes and energy servers
 
-from pandas import DataFrame, concat
+from pandas import DataFrame, Series, concat
 from numpy import random as nprandom
 
 from debugging import StopWatch
@@ -52,7 +52,7 @@ class PowerCurves:
 
                 filtered_curves = self.curves.loc[:, errors[errors == errors.min()].index.to_list()].columns
 
-                allowed_curves = DataFrame(data=[fit['performance']['kw'].to_list() + self.curves.loc[fit['operating time']:][c].to_list() for c in filtered_curves],
+                allowed_curves = DataFrame(data=[fit['performance']['kw'].to_list() + self.curves.loc[fit['operating time']:, c].to_list() for c in filtered_curves],
                                            index=filtered_curves).T
 
             elif ('operating time' in fit) and ('current power' in fit):
@@ -120,10 +120,21 @@ class PowerCurves:
             energy = expected_curve.iloc[operating_time:].sum() ## numpy.float64 error
         return energy
 
-# efficiency curves for a model type (NOT IMPLEMENTED)
+# efficiency curves for a model type
 class EfficiencyCurves:
-    def __init__(self, curves):
-        self.curves = curves
+    def __init__(self, curve):
+        self.curve = curve
+
+    def pick_curve(self, fit=None):
+        if (fit is not None) and (('performance' in fit) and ('operating time' in fit)):
+            # pulled from API
+                curve = Series(data=fit['performance']['pct'].to_list() + self.curve.loc[fit['operating time']:].to_list())
+
+        else:
+            curve = self.curve.copy()
+
+        return curve
+
 
 # details of power modules
 class PowerModules:
@@ -133,8 +144,8 @@ class PowerModules:
     # get power and efficiency curves
     def get_curves(self, model, mark):
         power_curves = PowerCurves(self.sql_db.get_power_curves(model, mark))
-        efficiency_curve = self.sql_db.get_efficiency_curve(model, mark)
-        return power_curves, efficiency_curve
+        efficiency_curves = EfficiencyCurves(self.sql_db.get_efficiency_curve(model, mark))
+        return power_curves, efficiency_curves
 
     # find best new power module available
     def get_model(self, install_date, power_needed=0, max_power=None, energy_needed=0, time_needed=0, best=False,

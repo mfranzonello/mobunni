@@ -7,7 +7,7 @@ from debugging import StopWatch
 
 # power module (field replaceable unit)
 class FRU:
-    def __init__(self, serial, model, base, mark, power_curves, efficiency_curve, install_date, current_date,
+    def __init__(self, serial, model, base, mark, power_curves, efficiency_curves, install_date, current_date,
                  fit=None):
         # FRU defined by sampled power curve at given installation year
         # FRUs are typically assumed to be new and starting at time 0, otherwise they follow the best fit power curve
@@ -17,17 +17,18 @@ class FRU:
         self.mark = mark
 
         self.install_date = install_date
-        operating_time = relativedelta(current_date, install_date)
-        self.month = operating_time.years*12 + operating_time.months
+        ##operating_time = relativedelta(current_date, install_date)
+        self.month = 0 ##operating_time.years*12 + operating_time.months
         
-        self.power_curves = None
-        self.ideal_curve = None
-        self.efficiency_curve = None
-        self.rating = 0
-        self.max_efficiency = 0
-        self.set_curves(power_curves, efficiency_curve)
-
+        self.power_curves = power_curves
         self.power_curve = self.power_curves.pick_curve(allowed=[0,1], fit=fit)
+        self.ideal_curve = self.power_curves.pick_curve(allowed='ideal')
+        self.rating = self.ideal_curve[0]
+
+        self.efficiency_curves = efficiency_curves
+        self.efficiency_curve = self.efficiency_curves.pick_curve(fit=fit)
+
+        self.max_efficiency = self.efficiency_curve.max()
 
     def __str__(self):
         if self.is_dead():
@@ -40,16 +41,7 @@ class FRU:
                                                                                self.get_efficiency(),
                                                                                age_string)
         return string
-
-    # set power and efficiency curves, rating and starting efficiency for new or overhauled FRU
-    def set_curves(self, power_curves, efficiency_curve):
-        self.power_curves = power_curves
-        self.ideal_curve = power_curves.pick_curve(allowed='ideal')
-        self.rating = self.ideal_curve[0]
-
-        self.efficiency_curve = efficiency_curve
-        self.max_efficiency = efficiency_curve[0]
-
+       
     # month to look at
     def get_month(self, lookahead=None):
         if lookahead is None:
@@ -66,11 +58,11 @@ class FRU:
             month = self.get_month(lookahead=lookahead)
 
             if ideal:
-                curve = self.ideal_curve
+                curve = self.ideal_curve.copy()
             elif lookahead:
                 curve = self.get_expected_curve()
             else:
-                curve = self.power_curve
+                curve = self.power_curve.copy()
 
             if month in curve:
                 power = curve[month]
@@ -81,7 +73,7 @@ class FRU:
 
     # estimate the power curve in deployed FRU
     def get_expected_curve(self):
-        curve = self.power_curve
+        curve = self.power_curve.copy()
         #curve = self.power_curves.get_expected_curve(self.get_month(), self.get_power())
         return curve
 
@@ -156,7 +148,7 @@ class FRU:
 
     # create a copy of the base FRU
     def copy(self, serial, install_date, current_date, fit=None):
-        fru = FRU(serial, self.model, self.base, self.mark, self.power_curves, self.efficiency_curve, install_date, current_date, fit=fit)
+        fru = FRU(serial, self.model, self.base, self.mark, self.power_curves, self.efficiency_curves, install_date, current_date, fit=fit)
         return fru
         
 # cabinet in energy server that can house a FRU

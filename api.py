@@ -38,22 +38,23 @@ class APC:
                     
                     print(' | {}{}'.format(server_number, fru_number), end='', flush=True)
 
-                    fru_performance, fru_install_date, fru_operating_time = self.get_fru_performance(fru_code, start_date, end_date, tmo_threshold)
+                    fru_performance, fru_install_date, fru_current_date, fru_operating_time = self.get_fru_performance(fru_code, start_date, end_date, tmo_threshold)
 
                     site_performance[server_number]['frus'][fru_number] = {'performance': fru_performance,
                                                                            'install date': fru_install_date,
+                                                                           'current date': fru_current_date,
                                                                            'operating time': fru_operating_time}
                 print()
         
         return site_performance
 
     def get_existing_servers(self, site_code, start_date=None, end_date=None, tmo_threshold=10):
-        site_performance = self.get_site_performance(site_code, start_date, end_date, tmo_threshold)
+        site_performance = self.get_site_performance(site_code, start_date=start_date, end_date=end_date, tmo_threshold=tmo_threshold)
         existing_servers = ExistingServers(site_performance)
         return existing_servers
 
     # get performance of individual power module and determine start date
-    def get_fru_performance(self, fru_code, start_date, end_date, tmo_threshold=10):
+    def get_fru_performance(self, fru_code, start_date=None, end_date=None, tmo_threshold=10):
         start_param = '?start={}'.format(start_date.strftime('%Y-%m-%d')) if start_date is not None else ''
         end_param = '&end={}'.format(end_date.strftime('%Y-%m-%d')) if (start_date is not None) and (end_date is not None) else ''
         params = '{}{}'.format(start_param, end_param)
@@ -83,9 +84,10 @@ class APC:
         # get start date based on increase in TMO from a FRU replacement
         fru_reset_date = fru_performance[fru_performance[~fru_performance['kw'].isna()].diff() > tmo_threshold].idxmax()['kw']
         fru_install_date = fru_reset_date if not isna(fru_reset_date) else fru_performance.index.min()
+        fru_current_date = fru_performance.index.max()
         fru_operating_time = relativedelta(fru_performance.index[-1], fru_install_date)
 
-        return fru_performance, fru_install_date, fru_operating_time
+        return fru_performance, fru_install_date, fru_current_date, fru_operating_time
 
 class ExistingServers:
     def __init__(self, site_performance):
@@ -105,10 +107,10 @@ class ExistingServers:
 
     def get_dates(self):
         if self.exist():
-            dates = [self.performance[server]['frus'][fru]['install date'] for server in self.performance for fru in self.performance[server]['frus']]
-            install_date = min(dates)
+            install_date = min([self.performance[server]['frus'][fru]['install date'] for server in self.performance for fru in self.performance[server]['frus']])
+            current_date = max([self.performance[server]['frus'][fru]['current date'] for server in self.performance for fru in self.performance[server]['frus']])
             
-            operating_time = relativedelta(max(dates), install_date)
+            operating_time = relativedelta(current_date, install_date)
             start_month = operating_time.years * 12 + operating_time.months
 
         else:

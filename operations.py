@@ -115,10 +115,10 @@ class Templates:
         serial = None # blank serial
         install_date = None # blank date
 
-        power_curves, efficiency_curve = self.power_modules.get_curves(model, mark)
+        power_curves, efficiency_curves = self.power_modules.get_curves(model, mark)
 
         base = self.power_modules.get_module_base(model, mark)
-        fru = FRU(serial, model, base, mark, power_curves, efficiency_curve, install_date, current_date=install_date)
+        fru = FRU(serial, model, base, mark, power_curves, efficiency_curves, install_date, current_date=install_date)
 
         # add FRU template
         self.modules[(model, mark)] = fru

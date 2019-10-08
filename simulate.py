@@ -129,7 +129,7 @@ class Simulation:
         if len(last_transaction):
             print('MONTHLY SUMMARY')
             print(last_transaction)
-
+            
         return decommissioned
 
     # save results of a simulation
