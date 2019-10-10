@@ -86,6 +86,7 @@ class FRU:
     # get efficiency of FRU
     def get_efficiency(self, lookahead=None):
         month = self.get_month(lookahead=lookahead)
+
         efficiency = self.efficiency_curve[min(month, len(self.efficiency_curve)-1)]
         return efficiency
 
@@ -117,7 +118,7 @@ class FRU:
             # FRU is at end of life and unrepairable
             deviated = False
         else:
-            deviated = 1 - self.get_power() / self.get_power(ideal=True) > threshold
+            deviated = 1 - self.get_power() / self.get_power(ideal=True) > threshold ## DIV BY ZERO???
      
         return deviated
 

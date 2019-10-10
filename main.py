@@ -3,7 +3,7 @@
 from math import floor
 
 from structure import Project, SQLDB
-from api import APC
+from layout import APC, ExistingServers, NewServers
 from xl_inputs import ExcelInt
 from xl_outputs import Excelerator, ExcelePaint
 from groups import Details, Commitments, Technology, Tweaks, Thresholds
@@ -40,20 +40,24 @@ def get_details(excel_int):
 # build scenario
 def get_scenario(excel_int, scenario_number, apc):
     print('Getting scenario {} details'.format(scenario_number+1))
-    scenario_name, limits, target_size, start_date, contract_length, start_month, \
+    scenario_name, limits, start_date, contract_length, \
         non_replace, repair, junk_level, best, early_deploy, \
-        site_code, new_servers, allowed_fru_models = excel_int.get_scenario(scenario_number)
+        site_code, servers, allowed_fru_models = excel_int.get_scenario(scenario_number) ##target_size, start_month,
 
-    existing_servers = apc.get_existing_servers(site_code)
+    existing_servers = ExistingServers(apc.get_site_performance(site_code))
+    new_servers = NewServers(servers)
 
     if existing_servers.exist():
         target_size = existing_servers.get_size()
-        start_date, start_month = existing_servers.get_dates()
+        start_date, start_month = existing_servers.get_dates() # replace start date with API value
+    elif new_servers.exist():
+        target_size = new_servers.get_size()
+        start_month = 0
 
     commitments = Commitments(length=contract_length, target_size=target_size, start_date=start_date,
                               start_month=start_month, non_replace=non_replace, limits=limits)
 
-    technology = Technology(new_servers=new_servers, existing_servers=existing_servers, allowed_fru_models=allowed_fru_models)
+    technology = Technology(new_servers=new_servers, existing_servers=existing_servers, allowed_fru_models=allowed_fru_models, site_code=site_code)
     tweaks = Tweaks(repair=repair, junk_level=junk_level, best=best, early_deploy=early_deploy)
 
     scenario = Scenario(scenario_number, scenario_name,
@@ -68,15 +72,15 @@ def run_simulation(details, scenario, sql_db, thresholds):
 
 # output results
 def save_results(project, scenario, simulation):
-    inputs, site_performance, costs, fru_power, fru_efficiency, transactions = simulation.get_results()
+    inputs, site_performance, cost_tables, fru_power, fru_efficiency, transactions, cash_flow = simulation.get_results()
     
     # set up output
     excelerator = Excelerator(path=None, filename='bpm_results_{}_{}'.format(project.name, scenario.name), extension='xlsx')
     
     # assemble output
-    data, formats, charts = ExcelePaint.get_paints(scenario.windowed, scenario.commitments.limits, inputs,
-                                                   site_performance, costs, fru_power, fru_efficiency, transactions)
-    excelerator.store_data(data)
+    data, print_index, formats, charts = ExcelePaint.get_paints(scenario.windowed, scenario.commitments.limits, inputs,
+                                                                site_performance, cost_tables, fru_power, fru_efficiency, transactions, cash_flow)
+    excelerator.store_data(data, print_index)
     excelerator.store_formats(formats)
     excelerator.store_charts(charts)
     excelerator.to_excel(start=open_results)

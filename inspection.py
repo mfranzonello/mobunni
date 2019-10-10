@@ -87,13 +87,14 @@ class Monitor:
 class Inspector:
     # see if swapping FRUs minimizes ceiling loss
     def look_for_balance(site):
-        nameplates = Series([server.nameplate for server in site.get_servers()])
+        nameplates = Series([server.nameplate for server in site.get_servers()], index=site.get_server_numbers())
         fru_powers = site.get_fru_power()
         server_powers = fru_powers.sum(axis='columns')
 
         headroom = nameplates - server_powers
         plus_ones = fru_powers.min('columns') == 0
         initial_headroom = headroom.where(plus_ones).max()
+
         initial_ceiling_loss = (server_powers - nameplates).where(server_powers > nameplates).sum()
        
         max_ceiling_loss = site.shop.thresholds.get('ceiling loss', 0)
@@ -320,7 +321,7 @@ class Inspector:
            
                 StopWatch.timer('get best fit FRU [early deploy]')
                 reason = 'early deploy: expected CTMO {:0.02%} below target {:0.02%}'.format(expected_ctmo, site.limits['CTMO'] + site.shop.thresholds['tmo pad'])
-                new_fru = site.shop.get_best_fit_fru(site.server_model, site.get_date(), site.number, server_dc, enclosure_dc,
+                new_fru = site.shop.get_best_fit_fru(site.servers[server_dc].model, site.get_date(), site.number, server_dc, enclosure_dc,
                                                         energy_needed=energy_needed, time_needed=lookahead, max_power=max_power, reason=reason)
                 StopWatch.timer('get best fit FRU [early deploy]')
 
@@ -347,7 +348,7 @@ class Inspector:
             #        energy_needed = additional_energy - energy_pulled
             
             #        reason = 'early deploy: expected Ceff {:0.02%} below target {:0.02%}'.format(expected_ceff, site.limits['Ceff'] + site.shop.thresholds['eff pad'])
-            #        new_fru = site.shop.get_best_fit_fru(site.server_model, site.get_date(), site.number, server_dc, enclosure_dc,
+            #        new_fru = site.shop.get_best_fit_fru(site.servers[server_dc].model, site.get_date(), site.number, server_dc, enclosure_dc,
             #                                             efficiency_needed=energy_needed, time_needed=lookahead, max_power=max_power, reason=reason)
 
             #        site.replace_and_balance(server_de, enclosure_de, new_fru, reason=reason)
@@ -376,7 +377,7 @@ class Inspector:
                 power_needed = additional_power + power_pulled
 
                 reason = 'early deploy: expected PTMO {:0.02%} below target {:0.02%}'.format(expected_ptmo, site.limits['PTMO'] + site.shop.thresholds['tmo pad'])
-                new_fru = site.shop.get_best_fit_fru(site.server_model, site.get_date(), site.number, server_dp, enclosure_dp,
+                new_fru = site.shop.get_best_fit_fru(site.servers[server_dp].model, site.get_date(), site.number, server_dp, enclosure_dp,
                                         power_needed=power_needed, time_needed=lookahead, max_power=max_power, reason=reason)
 
                 site.replace_and_balance(server_dp, enclosure_dp, new_fru, reason=reason)
@@ -411,7 +412,7 @@ class Inspector:
             reason_fail = 'PTMO'
 
         reason = '{} {:0.02%} below limit {:0.02%}'.format(reason_fail, commitments[reason_fail], site.limits[reason_fail])
-        new_fru = site.shop.get_best_fit_fru(site.server_model, site.get_date(), site.number, server_p, enclosure_p,
+        new_fru = site.shop.get_best_fit_fru(site.servers[server_p].model, site.get_date(), site.number, server_p, enclosure_p,
                                              power_needed=power_needed, reason=reason)
         
         # swap out old FRU and store if not empty

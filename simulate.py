@@ -8,6 +8,7 @@ from pandas import concat
 from properties import Site
 from operations import Shop, Fleet
 from legal import Portfolio
+from finances import Cash
 from debugging import StopWatch
 
 # details specific to scenario
@@ -54,6 +55,9 @@ class Simulation:
         self.inputs = scenario.get_inputs(details, thresholds)
 
         self.portfolio = Portfolio()
+        self.cash = Cash(self.sql_db)
+
+        self.size = 0
        
     # create operations and cost objects
     def set_up_fleet(self):
@@ -103,6 +107,8 @@ class Simulation:
         else:
             # build site from scratch
             site.populate(new_servers=self.scenario.technology.new_servers if (site_number == fleet.target_site) else None)
+
+        self.size = site.get_system_size()
 
         return site
 
@@ -178,11 +184,11 @@ class Simulation:
             self.append_summaries(fleet)
             
             # print simulation update
-            cost_dollars, cost_quants = self.get_costs(last=True)
+            cost_tables = self.get_costs(last=True)
             print('Cost $')
-            print(cost_dollars)
+            print(cost_tables['dollars'])
             print('Cost #')
-            print(cost_quants)
+            print(cost_tables['quants'])
 
     # average the run performance
     def get_site_performance(self):
@@ -216,7 +222,8 @@ class Simulation:
         cost_summary_dollars = self.pivot_and_total(cost_summary, 'year', 'action', 'service cost', years=cost_years, yearly=True)
         cost_summary_quants = self.pivot_and_total(cost_summary, 'year', 'action', 'count', years=cost_years, yearly=False)
        
-        cost_tables = [cost_summary_dollars, cost_summary_quants]
+        cost_tables = {'dollars': cost_summary_dollars,
+                       'quants': cost_summary_quants}
 
         return cost_tables
 
@@ -247,6 +254,10 @@ class Simulation:
 
         return transaction_sample
 
+    def get_cash_flow(self, cost_tables):
+        cash_flow = self.cash.generate_cash_flow(cost_tables, self.size)
+        return cash_flow
+
     # summarize results of all simulations
     def get_results(self):
         # return results of simulation runs
@@ -256,5 +267,8 @@ class Simulation:
         cost_tables = self.get_costs()
         fru_power_sample, fru_efficiency_sample = self.get_fru_performance()
         transaction_sample = self.get_transactions()
+        cash_flow = self.get_cash_flow(cost_tables)
 
-        return self.inputs, site_performance, cost_tables, fru_power_sample, fru_efficiency_sample, transaction_sample
+        print(cash_flow)
+
+        return self.inputs, site_performance, cost_tables, fru_power_sample, fru_efficiency_sample, transaction_sample, cash_flow

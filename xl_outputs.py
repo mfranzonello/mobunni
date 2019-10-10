@@ -17,6 +17,7 @@ class Excelerator:
         self.writer = None
 
         self.dataframes = {}
+        self.print_index = {}
         self.charts = []
         self.formats = []
 
@@ -93,8 +94,10 @@ class Excelerator:
         return row_indices, column_indices
 
     # store sheet value data
-    def store_data(self, data):
+    def store_data(self, data, print_index={}):
         self.dataframes = data
+        self.print_index = print_index
+
         return
 
     def store_formats(self, formats):
@@ -121,8 +124,9 @@ class Excelerator:
             offset = None if chart_sheet_name else [chart.get('header row', 0) + 1, max_columns + 1]
 
             self.charts.append({'sheetname': sheetname, 'columns': columns, 'rows': max_rows,
-                                'offset': offset, 'chart sheet name': chart_sheet_name,
-                                'y-axis': chart.get('y-axis'), 'constants': chart.get('constants')})
+                                'offset': offset, 'chart sheet name': chart_sheet_name, 'constants': chart.get('constants'),
+                                'y-axis': chart.get('y-axis'), 'y2-axis': chart.get('y2-axis'),
+                                'x-axis': chart.get('x-axis'), 'x2-axis': chart.get('x2-axis')})
         return
 
     # add values to an output sheet
@@ -137,7 +141,7 @@ class Excelerator:
         writer.sheets[sheetname] = worksheet
         row = 0
         for df in dfs:
-            df.to_excel(writer, sheet_name=sheetname, index=False, startrow=row, startcol=0)
+            df.to_excel(writer, sheet_name=sheetname, index=self.print_index.get(sheetname, False), startrow=row, startcol=0)
             row += df.shape[0] + 2 # header + space
         return
 
@@ -168,7 +172,7 @@ class Excelerator:
         rows = chart['rows']
         offset = chart.get('offset')
         chart_sheet_name = chart.get('chart sheet name')
-        y_axis = chart.get('y-axis')
+        axes = {xy: chart.get('{}-axis'.format(xy)) for xy in ['y', 'y2', 'x', 'x2']}
         constants = chart.get('constants')
         chart_type = chart.get('type', 'line')
         header_row = chart.get('header_row', 0)
@@ -197,8 +201,15 @@ class Excelerator:
                                           'values': values,
                                           'border': {'color': constant['color'], 'dash_type': constant['dash']}})
                
-        if y_axis:
-            chart.set_y_axis(y_axis)
+        if axes['y']:
+            chart.set_y_axis(axes['y'])
+        if axes['y2']:
+            chart.set_y2_axis(axes['y2'])
+        if axes['x']:
+            chart.set_x_axis(axes['x'])
+        if axes['x2']:
+            chart.set_x2_axis(axes['x2'])
+
 
         if offset:
             insert_address = self.get_excel_address(offset[0], offset[1])
@@ -247,10 +258,11 @@ class ExcelePaint:
               'input': 50,
               'value': 12,
               'action': 18,
-              'money': 10}
+              'money': 10,
+              'cash': 25}
     heights = {'costs': 'all'}
 
-    def get_paints(windowed, limits, inputs, performance, costs, power, efficiency, transactions):
+    def get_paints(windowed, limits, inputs, performance, cost_tables, power, efficiency, transactions, cash_flow):
         ranges = ExcelePaint.ranges.copy()
 
         if not windowed:
@@ -268,19 +280,27 @@ class ExcelePaint:
                                    'comma': ['power'], 'percent': ['efficiency']},
                   'costs': {'action': None}}
 
-        data = ExcelePaint._get_data(inputs, performance, costs, power, efficiency, transactions)
+        indices = ['cash flow']
+
+        data = ExcelePaint._get_data(inputs, performance, cost_tables, power, efficiency, transactions, cash_flow)
+        print_index = ExcelePaint._get_print_index(indices)
         formats = ExcelePaint._get_formats(windowed, styles)
         charts = ExcelePaint._get_charts(windowed, limits, performance, columns['percent'], ranges)
 
-        return data, formats, charts
+        return data, print_index, formats, charts
 
-    def _get_data(inputs, performance, costs, power, efficiency, transactions):
+    def _get_data(inputs, performance, cost_tables, power, efficiency, transactions, cash_flow):
         data = {'inputs': inputs,
-                'performance': performance, 'costs': costs,
+                'performance': performance, 'costs': [cost_tables[c] for c in cost_tables],
                 'power': power, 'efficiency': efficiency,
-                'transactions': transactions}
+                'transactions': transactions,
+                'cash flow': cash_flow}
 
         return data
+
+    def _get_print_index(indices):
+        print_index = {idx: True for idx in indices}
+        return print_index
 
     def _get_formats(windowed, styles):
         formats = [{'sheetname': sheetname, 'columns': cols,
@@ -292,12 +312,19 @@ class ExcelePaint:
 
         return formats
 
-    def _get_charts(windowed, limits, performance, chart_columns, ranges):
+    def _get_charts(windowed, limits, performance, chart_columns, ranges, max_frus=10):
         chart_colors = [ranges[r] for v in ExcelePaint.percent_values for r in ranges for b in ExcelePaint.bounds]
         chart_dashes = [ExcelePaint.bounds.get(b, 'solid') for v in ExcelePaint.percent_values for r in ranges for b in ExcelePaint.bounds]
         chart_weights = [ExcelePaint.weights.get(b, 2.25) for v in ExcelePaint.percent_values for r in ranges for b in ExcelePaint.bounds]
-        chart_y_axis = {'max': 1.0, 'min': floor(10*performance[chart_columns].min().min())/10,
+
+        chart_y_axis = {'name': 'performance',
+                        'max': 1.0, 'min': floor(10*performance[chart_columns].min().min())/10,
                         'major_gridlines': {'visible': True, 'line': {'color': '#F4F6F6'}}}
+        chart_y2_axis = {'name': 'FRU replacements',
+                         'max': max_frus * 4, 'min': 0}
+        chart_x_axis = {'name': 'date'}
+        chart_x2_axis = {}
+
         chart_constants = [{'name': '{}{}{}'.format(r, v, b),
                             'value': limits['{}{}'.format(r, v)],
                             'color': ExcelePaint.ranges_lite[r],
@@ -305,7 +332,9 @@ class ExcelePaint:
                             } for r in ranges for v in ExcelePaint.percent_values for b in ExcelePaint.bounds_lite]
         charts = [{'sheetname': 'performance', 'type': 'line', 'columns': chart_columns,
                    'colors': chart_colors, 'dashes': chart_dashes, 'weights': chart_weights,
-                   'chart sheet name': 'graph', 'y-axis': chart_y_axis, 'constants': chart_constants},
+                   'chart sheet name': 'graph', 'constants': chart_constants,
+                   'y-axis': chart_y_axis, 'y2-axis': chart_y2_axis, 'x-axis': chart_x_axis, 'x2-axis': chart_x2_axis},
+                  #{'sheetname': 'costs', 'type': 'column', 'columns': None},
                   ]
 
         return charts

@@ -2,7 +2,7 @@
 
 import os
 
-from pandas import DataFrame, read_sql, to_numeric
+from pandas import DataFrame, Timestamp, read_sql, to_numeric, merge
 from numpy import nan
 from sqlalchemy import create_engine
 
@@ -238,12 +238,11 @@ class SQLDB:
             buildable_modules = buildable_modules[buildable_modules['model'].isin(filtered)]
 
         if allowed is not None:
-            allowed_filter = \
-                buildable_modules['model'].isin(allowed['model']) &\
-                buildable_modules['mark'].isin(allowed['mark'])
-            if allowed_filter.any():
-                # only limit when allowables are buildable
-                buildable_modules = buildable_modules[allowed_filter]
+            allowed_modules = merge(buildable_modules, allowed, how='inner')
+
+            # only limit when allowables are buildable
+            if not allowed_modules.empty:
+                buildable_modules = allowed_modules
 
         return buildable_modules
 
@@ -270,7 +269,7 @@ class SQLDB:
 
     # select efficiency curves for a power module model
     def get_efficiency_curve(self, model, mark):
-        sql = 'SELECT month, pct FROM EfficiencyCurve WHERE model IS "{}" and mark IS "{}"'.format(model, mark)
+        sql = 'SELECT month, pct FROM EfficiencyCurve WHERE (model IS "{}") and (mark IS "{}")'.format(model, mark)
         efficiency_curve = read_sql(sql, self.connection)
         efficiency_curve.index = efficiency_curve.loc[:, 'month']-1
         efficiency_curve = efficiency_curve['pct'].dropna(how='all')
@@ -284,6 +283,27 @@ class SQLDB:
         system_sizes = systems['system_size']
         system_dates = systems['full_power_date']
         return system_sizes, system_dates
+
+    # get line items for cash flow
+    def get_line_item(self, item, date, escalator_basis=None):
+        sql = 'SELECT value FROM CashFlow WHERE (lineitem IS "{}") AND (date <= "{}") ORDER BY date DESC LIMIT 1'.format(item, date)
+        start_values = read_sql(sql, self.connection, parse_dates=['date'])
+
+        if escalator_basis is None:
+            sql = 'SELECT value FROM CashFlow WHERE (lineitem IS "{} escalator") AND (date <= "{}") ORDER BY date DESC LIMIT 1'.format(item, date)
+            escalators = read_sql(sql, self.connection, parse_dates=['date'])
+
+        else:
+            sql = 'SELECT value, date FROM CashFlow WHERE lineitem IS "{}" ORDER BY date ASC'.format(escalator_basis)
+            escalators = read_sql(sql, self.connection, parse_dates=['date'])
+            escalators.loc[:, 'escalator'] = escalators['value'].pct_change()
+            escalators = escalators[(escalators['date'] <= Timestamp(date))]
+
+        # get last value or return NaN
+        start_value = start_values.iloc[0]['value'] if len(start_values) else nan
+        escalator = escalators.iloc[-1]['value'] if len(escalators) else nan
+        
+        return start_value, escalator
 
     # take existing data and scale to a new peak and stretch by an additional time period
     def scale_and_stretch(self, base_data, scale_factor, stretch_extension):

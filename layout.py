@@ -48,10 +48,10 @@ class APC:
         
         return site_performance
 
-    def get_existing_servers(self, site_code, start_date=None, end_date=None, tmo_threshold=10):
-        site_performance = self.get_site_performance(site_code, start_date=start_date, end_date=end_date, tmo_threshold=tmo_threshold)
-        existing_servers = ExistingServers(site_performance)
-        return existing_servers
+    ##def get_existing_servers(self, site_code, start_date=None, end_date=None, tmo_threshold=10):
+    ##    site_performance = self.get_site_performance(site_code, start_date=start_date, end_date=end_date, tmo_threshold=tmo_threshold)
+    ##    existing_servers = ExistingServers(site_performance)
+    ##    return existing_servers
 
     # get performance of individual power module and determine start date
     def get_fru_performance(self, fru_code, start_date=None, end_date=None, tmo_threshold=10):
@@ -107,8 +107,8 @@ class ExistingServers:
 
     def get_dates(self):
         if self.exist():
-            install_date = min([self.performance[server]['frus'][fru]['install date'] for server in self.performance for fru in self.performance[server]['frus']])
-            current_date = max([self.performance[server]['frus'][fru]['current date'] for server in self.performance for fru in self.performance[server]['frus']])
+            install_date = min([self.performance[server]['frus'][fru]['install date'] for server in self.performance for fru in self.performance[server]['frus']]).date()
+            current_date = max([self.performance[server]['frus'][fru]['current date'] for server in self.performance for fru in self.performance[server]['frus']]).date()
             
             operating_time = relativedelta(current_date, install_date)
             start_month = operating_time.years * 12 + operating_time.months
@@ -120,7 +120,7 @@ class ExistingServers:
 
     def get_models(self):
         if self.exist():
-            models = ' / '.join([self.performance[server]['model'] for server in self.performance])
+            models = [self.performance[server]['model'] for server in self.performance]
             return models
 
     def get_server_numbers(self):
@@ -128,10 +128,10 @@ class ExistingServers:
             server_numbers = self.performance.keys()
             return server_numbers
 
-    def get_fru_numbers(self, server_number):
+    def get_enclosure_numbers(self, server_number):
         if self.exist():
-            fru_numbers = self.performance[server_number]['frus'].keys()
-            return fru_numbers
+            enclosure_numbers = self.performance[server_number]['frus'].keys()
+            return enclosure_numbers
 
     def __getitem__(self, number):
         if type(number) in [str, int]:
@@ -142,4 +142,37 @@ class ExistingServers:
             item = self.performance[server_number]['frus'][fru_number]
         else:
             item = None
+        return item
+
+# user defined servers
+class NewServers:
+    def __init__(self, new_servers):
+        self.servers = new_servers if len(new_servers) else None
+
+    def exist(self):
+        exists = self.servers is not None
+        return exists
+
+    def get_size(self):
+        if self.exist():
+            size = self.servers['nameplate'].sum()
+            return size
+
+    def get_server_numbers(self):
+        if self.exist():
+            server_numbers = self.servers['server number'].to_list()
+            return server_numbers
+
+    def get_enclosure_numbers(self, server_number):
+        if self.exist():
+            enclosure_numbers = list(range(int(self[server_number]['filled'])))
+            return enclosure_numbers
+
+    def get_models(self):
+        if self.exist():
+            models = self.servers['model'].to_list()
+            return models
+
+    def __getitem__(self, number):
+        item = self.servers[self.servers['server number']==number].iloc[0]
         return item

@@ -46,7 +46,6 @@ class Contract:
     # FRUs can be installed during given year of contract
     def is_replaceable_time(self, **kwargs):
         replaceable = (kwargs.get('month', 0) >= self.start_month) and \
-                      ((self.non_replace is None) or \
-                       not (self.non_replace[0] <= year <= self.non_replace[-1]))
+                      not ((self.non_replace['start'] <= kwargs.get('year')) & (self.non_replace['end'] >= kwargs.get('year'))).any()
 
         return replaceable

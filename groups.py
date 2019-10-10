@@ -43,6 +43,9 @@ class Commitments(Group):
         self.number = None
         self.deal = None
 
+        # return years of non-replacement
+        non_replace_years = ' / '.join(' to '.join('Y'+str(self.non_replace[j][i]) for j in ['start', 'end']) for i in self.non_replace.index)
+
         self.data = [['contract length', self.length],
                      ['contract target size', self.target_size],
                      ['contract start date', self.start_date],
@@ -54,7 +57,7 @@ class Commitments(Group):
                      ['windowed efficiency limit', self.limits['Weff']],
                      ['periodic efficiency limit', self.limits['Peff']],
                      ['window', self.limits['window'] if self.limits['WTMO'] or self.limits['Weff'] else None],
-                     ['downside years', self.non_replace]]
+                     ['downside years', non_replace_years if len(non_replace_years) else None]]
 
 # collection of exisiting and future technology
 class Technology(Group):
@@ -63,11 +66,17 @@ class Technology(Group):
         self.new_servers = kwargs['new_servers']
         self.existing_servers = kwargs['existing_servers']
         self.allowed_fru_models = kwargs.get('allowed_fru_models')
+        self.site_code = kwargs['site_code'] if len(kwargs['site_code']) else None
 
         if self.has_existing_servers():
-            self.data = [['existing server models', self.existing_servers.get_models()]]
-        else:
-            self.data = [['new server model', self.new_servers['model'] if self.has_new_server_model() else self.new_servers['base']]]
+            model_string = 'existing'
+            models = self.existing_servers.get_models()
+        elif self.has_new_servers():
+            model_string = 'new'
+            models = self.new_servers.get_models()
+
+        self.data = [['site code', self.site_code if self.site_code is not None else 'NEW SITE'],
+                     ['{} server models'.format(model_string), ' / '.join(models)]]
 
     # check if there are existing servers
     def has_existing_servers(self):
@@ -75,9 +84,9 @@ class Technology(Group):
         return existing
 
     # check if new server model is given
-    def has_new_server_model(self):
-        model_number = len(self.new_servers['model']) > 0
-        return model_number
+    def has_new_servers(self):
+        existing = self.new_servers.exist()
+        return existing
 
 # collection of modeling tweaks
 class Tweaks(Group):

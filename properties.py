@@ -2,7 +2,6 @@
 
 from dateutil.relativedelta import relativedelta
 from math import ceil, floor
-from statistics import mode
 
 from pandas import DataFrame, Series, isnull
 from numpy import nan
@@ -24,7 +23,6 @@ class Site:
 
         self.monitor = Monitor(self.number, self.contract.start_date, self.contract.length, self.windowed)
 
-        self.server_model = None
         self.servers = {}
 
         self.month = 0 ##contract.start_month
@@ -207,12 +205,13 @@ class Site:
         # prepare log book storage
         self.monitor.set_up(self.servers)
 
+        # set system size
+        self.system_size = self.get_system_size() ##contract.target_size
+
     # add existing FRUs to site
     def populate_existing(self, existing_servers):
         # house existing frus in corresponding servers
-        server_numbers = existing_servers.get_server_numbers()
-            
-        for server_number in server_numbers:
+        for server_number in existing_servers.get_server_numbers():
             # loop through servers
             server_model = existing_servers[server_number]['model']
             nameplate_needed = existing_servers[server_number]['nameplate']
@@ -222,22 +221,19 @@ class Site:
                                              nameplate_needed=nameplate_needed, n_enclosures=n_enclosures)
                 
             #enclosure_number = 0
-            for fru_number in existing_servers.get_fru_numbers(server_number):
+            for enclosure_number in existing_servers.get_enclosure_numbers(server_number):
                 # loop through power modules
                 enclosure_number = server.get_empty_enclosure()
 
-                performance = existing_servers[server_number, fru_number]['performance']
-                operating_time = existing_servers[server_number, fru_number]['operating time']
+                performance = existing_servers[server_number, enclosure_number]['performance']
+                operating_time = existing_servers[server_number, enclosure_number]['operating time']
                 fru_fit = {'performance': performance, 'operating time': operating_time.years + operating_time.months}
 
-                install_date = existing_servers[server_number, fru_number]['install date']
+                install_date = existing_servers[server_number, enclosure_number]['install date']
                 current_date = install_date + relativedelta(months=len(performance))
 
-                fru_model, fru_mark = self.shop.get_latest_model('module', server_model, install_date)
+                fru_model, fru_mark = self.shop.get_latest_model('module', server.model, install_date)
 
-                ##print('FIT')
-                ##print(fru_fit)
- 
                 fru = self.shop.create_fru(fru_model, fru_mark, install_date, self.number, server_number, enclosure_number,
                                             initial=True, current_date=current_date, fit=fru_fit,
                                             reason='populating enclosure')
@@ -246,35 +242,24 @@ class Site:
                 
             # add server to site
             self.add_server(server)
-            
-        # set system size
-        self.system_size = self.contract.target_size
-        # set server model
-        self.server_model = mode(server.model for server in self.get_servers())
 
     # add new FRUs to site
     def populate_new(self, new_servers):
         # no existing FRUs, start site from scratch
-        # divide power needed by server nameplate to determine number of servers needed
-        server_model_number, servers_needed = self.shop.prepare_servers(new_servers, self.contract.target_size)
-        self.server_model = self.shop.get_server_model(server_model_number)
 
-        # add servers needed to hit target size
-        for server_number in range(servers_needed):
-            server = self.shop.create_server(self.number, server_number, server_model_number=server_model_number)
+        for server_number in new_servers.get_server_numbers():
+            server_model = new_servers[server_number]['model']
+            server = self.shop.create_server(self.number, server_number, server_model_number=server_model)
+            
+            for enclosure_number in new_servers.get_enclosure_numbers(server_number):
+                fru_model, fru_mark = self.shop.get_latest_model('module', server.model, self.get_date())
+
+                fru = self.shop.create_fru(fru_model, fru_mark, self.get_date(), self.number, server_number, enclosure_number,
+                                            initial=True, reason='populating enclosure')
+
+                server.replace_fru(enclosure_number, fru)
+
             self.add_server(server)
-
-            # add FRUs to hit target power
-            while self.servers[server_number].has_empty() and \
-                (self.servers[server_number].get_power() < server.nameplate) and (self.get_site_power() < self.contract.target_size):
-                enclosure_number = self.servers[server_number].get_empty_enclosure()
-                power_needed = self.contract.target_size - self.get_site_power()
-
-                fru = self.shop.get_best_fit_fru(self.server_model, self.get_date(), self.number, server_number, enclosure_number,
-                                                 power_needed=power_needed, initial=True, reason='populating enclosure')
-                self.replace_fru(server_number, enclosure_number, fru)
-
-        self.system_size = self.get_system_size()    
        
     # return usable FRUs at end of contract
     def decommission(self):

@@ -111,7 +111,13 @@ class ExcelSeer:
             xl_range = self.tables[table]['ref']
             sheet_num = self.tables[table]['sheet']
             parse_c, skip_r, height = self._split_range(xl_range)
+
+            # read in data
             df = xl_file.parse(sheet_name=sheet_num, skiprows=skip_r, usecols=parse_c).iloc[0:height]
+            
+            # rename mangled dupe column names
+            df.columns = xl_file.parse(sheet_name=sheet_num, skiprows=skip_r, usecols=parse_c, header=None).iloc[0].values
+
             dataframes[(self.sheet_names[sheet_num], self.tables[table]['name'].lower())] = df
         self.data = dataframes
 
@@ -271,39 +277,45 @@ class ExcelInt:
         
         keys = {'ctmo_limit': self.floater, 'wtmo_limit': self.floater, 'ptmo_limit': self.floater,
                 'ceff_limit': self.floater, 'weff_limit': self.floater, 'peff_limit': self.floater, 'window': self.inter,
-                'target_size': float, 'start_date': self.xldate, 'contract_length': int, 'contract_start': float, 'nonreplace': str,
+                'start_date': self.xldate, 'contract_length': int,
+                'site_code': str,
                 'allow_repairs': bool, 'redeploy_level': self.inter, 'use_best_only': bool, 'allow_early_deploy': bool,
-                'new_server_base': str, 'new_server_model': str, 'site_code': str,
-                }
+                } ##'target_size': float, 'nonreplace': str, 'contract_start': float, 'new_server_base': str, 'new_server_model': str, 
 
-        tables = ['AllowedModules']
+        tables = ['NonReplace', 'NewServers', 'AllowedModules']
 
         values_keys = self.get_sheet_named_ranges(scenario_name, keys)
         values_tables = self.get_sheet_tables(scenario_name, tables)
 
-        [ctmo_limit, wtmo_limit, ptmo_limit, ceff_limit, weff_limit, peff_limit, window, \
-            target_size, start_date, contract_length, start_month, \
-            non_replace_string, repair, junk_level, best, early_deploy, \
-            new_server_base, new_server_model, site_code] = values_keys
+        [ctmo_limit, wtmo_limit, ptmo_limit, ceff_limit, weff_limit, peff_limit, window,
+         start_date, contract_length,
+         site_code,
+         repair, junk_level, best, early_deploy,
+         ] = values_keys ##new_server_base, new_server_model, target_size, start_month, non_replace_string,
 
-        [allowed_fru_models] = values_tables
+        [non_replace, servers, allowed_fru_models] = values_tables
 
         limits = {'CTMO': ctmo_limit, 'WTMO': wtmo_limit, 'PTMO': ptmo_limit,
                   'Ceff': ceff_limit, 'Weff': weff_limit, 'Peff': peff_limit,
                   'window': window}
-        non_replace = [int(float(x)) for x in non_replace_string.split(',')] if len(non_replace_string) else []
-
-        new_servers = {'base': new_server_base, 'model': new_server_model}
         
+        # set non_replace to empty dataframe if blank
+        non_replace.dropna(inplace=True)
+
+        # drop totals row from servers
+        servers = servers.iloc[:-1]
+
+        # set tech roadmap to default if blank
         if allowed_fru_models['model'].dropna().empty:
             allowed_fru_models = None
         
+        # set repair to default if blank
         if repair is None:
             repair = False
 
-        return scenario_name, limits, target_size, start_date, contract_length, start_month, \
+        return scenario_name, limits, start_date, contract_length,  \
             non_replace, repair, junk_level, best, early_deploy, \
-            site_code, new_servers, allowed_fru_models
+            site_code, servers, allowed_fru_models ##start_month, target_size,
 
     # total number of scenarios to explore
     def count_scenarios(self):
