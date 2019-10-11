@@ -2,11 +2,24 @@
 
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
+from urllib.request import urlopen
+from urllib.error import URLError
 from pandas import read_json, isna, concat, DataFrame, to_datetime
 
 # connect to internal Bloom API for site, server and power module performance of fleet
 class APC:
-    endpoint = 'https://tmo-portal.ionamerica.priv:4433' # API location
+    url = 'https://tmo-portal.ionamerica.priv'
+    endpoint = '{}:4433'.format(url) # API location
+
+    # check if there is an internet connection
+    def check_internet():
+        try:
+            urlopen(APC.url, timeout=5)
+            internet = True
+        except URLError:
+            internet = False
+
+        return internet
 
     # get Bloom sites, customer names, servers and power modules
     def get_data(keyword):
@@ -18,14 +31,18 @@ class APC:
         return data
 
     def __init__(self):
-        self.sites = APC.get_data('sites')
-        self.servers = APC.get_data('servers')
+        self.connected = APC.check_internet()
+        if self.connected:
+            self.sites = APC.get_data('sites')
+            self.servers = APC.get_data('servers')
+        else:
+            self.sites, self.servers = [None]*2
 
     # get performance of each power module at a site
     def get_site_performance(self, site_code, start_date=None, end_date=None, tmo_threshold=10):
         print('Downloading {} performance from APC'.format(site_code))
         site_performance = {}
-        if site_code is not None:
+        if self.connected and (site_code is not None):
 
             for server_code in self.servers[self.servers['site']==site_code]['id']:
                 server_number = server_code.replace(site_code, '')
@@ -47,11 +64,6 @@ class APC:
                 print()
         
         return site_performance
-
-    ##def get_existing_servers(self, site_code, start_date=None, end_date=None, tmo_threshold=10):
-    ##    site_performance = self.get_site_performance(site_code, start_date=start_date, end_date=end_date, tmo_threshold=tmo_threshold)
-    ##    existing_servers = ExistingServers(site_performance)
-    ##    return existing_servers
 
     # get performance of individual power module and determine start date
     def get_fru_performance(self, fru_code, start_date=None, end_date=None, tmo_threshold=10):

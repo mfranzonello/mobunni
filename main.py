@@ -42,7 +42,7 @@ def get_scenario(excel_int, scenario_number, apc):
     print('Getting scenario {} details'.format(scenario_number+1))
     scenario_name, limits, start_date, contract_length, \
         non_replace, repair, junk_level, best, early_deploy, \
-        site_code, servers, allowed_fru_models = excel_int.get_scenario(scenario_number) ##target_size, start_month,
+        site_code, servers, roadmap = excel_int.get_scenario(scenario_number) ##target_size, start_month,
 
     existing_servers = ExistingServers(apc.get_site_performance(site_code))
     new_servers = NewServers(servers)
@@ -57,7 +57,7 @@ def get_scenario(excel_int, scenario_number, apc):
     commitments = Commitments(length=contract_length, target_size=target_size, start_date=start_date,
                               start_month=start_month, non_replace=non_replace, limits=limits)
 
-    technology = Technology(new_servers=new_servers, existing_servers=existing_servers, allowed_fru_models=allowed_fru_models, site_code=site_code)
+    technology = Technology(new_servers=new_servers, existing_servers=existing_servers, roadmap=roadmap, site_code=site_code)
     tweaks = Tweaks(repair=repair, junk_level=junk_level, best=best, early_deploy=early_deploy)
 
     scenario = Scenario(scenario_number, scenario_name,

@@ -229,7 +229,10 @@ class ExcelInt:
 
     # convert excel float to datetime
     def xldate(self, date_float):
-        date = xlrd.xldate_as_datetime(date_float, 0).date()
+        if len(date_float):
+            date = xlrd.xldate_as_datetime(date_float, 0).date()
+        else:
+            date = None
         return date
 
     # return floats where possible
@@ -282,7 +285,7 @@ class ExcelInt:
                 'allow_repairs': bool, 'redeploy_level': self.inter, 'use_best_only': bool, 'allow_early_deploy': bool,
                 } ##'target_size': float, 'nonreplace': str, 'contract_start': float, 'new_server_base': str, 'new_server_model': str, 
 
-        tables = ['NonReplace', 'NewServers', 'AllowedModules']
+        tables = ['NonReplace', 'NewServers', 'Roadmap']
 
         values_keys = self.get_sheet_named_ranges(scenario_name, keys)
         values_tables = self.get_sheet_tables(scenario_name, tables)
@@ -293,7 +296,7 @@ class ExcelInt:
          repair, junk_level, best, early_deploy,
          ] = values_keys ##new_server_base, new_server_model, target_size, start_month, non_replace_string,
 
-        [non_replace, servers, allowed_fru_models] = values_tables
+        [non_replace, servers, roadmap] = values_tables
 
         limits = {'CTMO': ctmo_limit, 'WTMO': wtmo_limit, 'PTMO': ptmo_limit,
                   'Ceff': ceff_limit, 'Weff': weff_limit, 'Peff': peff_limit,
@@ -306,8 +309,8 @@ class ExcelInt:
         servers = servers.iloc[:-1]
 
         # set tech roadmap to default if blank
-        if allowed_fru_models['model'].dropna().empty:
-            allowed_fru_models = None
+        if roadmap['model'].dropna().empty:
+            roadmap = None
         
         # set repair to default if blank
         if repair is None:
@@ -315,7 +318,7 @@ class ExcelInt:
 
         return scenario_name, limits, start_date, contract_length,  \
             non_replace, repair, junk_level, best, early_deploy, \
-            site_code, servers, allowed_fru_models ##start_month, target_size,
+            site_code, servers, roadmap ##start_month, target_size,
 
     # total number of scenarios to explore
     def count_scenarios(self):

@@ -67,11 +67,10 @@ class Simulation:
                       system_sizes, system_dates, self.scenario.commitments.start_date, min_date)
 
         shop = Shop(self.sql_db, self.thresholds, self.scenario.commitments.start_date, tweaks=self.tweaks,
-                    allowed_fru_models=self.scenario.technology.allowed_fru_models)
+                    roadmap=self.scenario.technology.roadmap)
         fleet.add_shop(shop)
 
         # adjust start date to account for sites being installed before the target site
-        ##print('TARGET MONTH: {}'.format(fleet.target_month))
         self.scenario.commitments.start_date -= relativedelta(months=fleet.target_month)
 
         return fleet, shop
@@ -79,8 +78,11 @@ class Simulation:
     # create a site at the beginning of a phase
     def set_up_site(self, fleet, month):
         site_number = len(fleet.sites)
-        is_target = ' (TARGET)' if site_number == fleet.target_site else ''
-        print('Constructing site {}{}'.format(site_number+1, is_target), end='')
+        if site_number == fleet.target_site:
+            site_name = '{} (TARGET)'.format(self.scenario.technology.site_name)
+        else:
+            site_name = 'site {}'.format(site_number+1)
+        print('Constructing {}'.format(site_name), end='')
 
         # pick site size according to distribution for all but one specific site
         site_size = fleet.install_sizes[site_number]

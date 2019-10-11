@@ -232,7 +232,7 @@ class Site:
                 install_date = existing_servers[server_number, enclosure_number]['install date']
                 current_date = install_date + relativedelta(months=len(performance))
 
-                fru_model, fru_mark = self.shop.get_latest_model('module', server.model, install_date)
+                fru_model, fru_mark = self.shop.get_latest_model('module', server.model, install_date, match_server_model=True)
 
                 fru = self.shop.create_fru(fru_model, fru_mark, install_date, self.number, server_number, enclosure_number,
                                             initial=True, current_date=current_date, fit=fru_fit,
@@ -252,7 +252,7 @@ class Site:
             server = self.shop.create_server(self.number, server_number, server_model_number=server_model)
             
             for enclosure_number in new_servers.get_enclosure_numbers(server_number):
-                fru_model, fru_mark = self.shop.get_latest_model('module', server.model, self.get_date())
+                fru_model, fru_mark = self.shop.get_latest_model('module', server.model, self.get_date(), match_server_model=True)
 
                 fru = self.shop.create_fru(fru_model, fru_mark, self.get_date(), self.number, server_number, enclosure_number,
                                             initial=True, reason='populating enclosure')

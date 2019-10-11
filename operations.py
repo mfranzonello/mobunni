@@ -128,7 +128,7 @@ class Templates:
 # warehouse to store, repair and deploy old FRUs and create new FRUs
 class Shop:
     def __init__(self, sql_db, thresholds, install_date, tweaks,
-                 allowed_fru_models=None):
+                 roadmap=None):
         self.power_modules = PowerModules(sql_db)
         self.hot_boxes = HotBoxes(sql_db)
         self.energy_servers = EnergyServers(sql_db)
@@ -151,7 +151,7 @@ class Shop:
 
         self.date = install_date
 
-        self.allowed_fru_models = allowed_fru_models
+        self.roadmap = roadmap
 
         self.next_serial = {'ES': 0, 'PWM': 0, 'ENC': 0}
 
@@ -357,13 +357,13 @@ class Shop:
                 module = self.power_modules.get_model(install_date,
                                                       power_needed=power_needed, max_power=max_power,
                                                       energy_needed=energy_needed, time_needed=time_needed,
-                                                      best=self.best, server_model=server_model, allowed_fru_models=self.allowed_fru_models)
+                                                      best=self.best, server_model=server_model, roadmap=self.roadmap)
 
             else:
                 module = self.power_modules.get_model(install_date,
                                                       power_needed=power_needed, max_power=max_power,
                                                       energy_needed=energy_needed, time_needed=time_needed,
-                                                      bespoke=not initial, server_model=server_model, allowed_fru_models=self.allowed_fru_models)
+                                                      bespoke=not initial, server_model=server_model, roadmap=self.roadmap)
 
             if module is not None:
                 # can create a FRU accoring to requirements

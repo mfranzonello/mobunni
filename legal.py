@@ -26,7 +26,7 @@ class Contract:
         self.target_size = target_size
         self.start_date = start_date
         self.start_month = start_month
-        self.non_replace = None if (non_replace is None or (len(non_replace) == 0)) else non_replace
+        self.non_replace = non_replace
         self.limits = limits
         self.windowed = (limits['WTMO'] or limits['Weff']) and limits['window']
         self.start_ctmo = start_ctmo

@@ -149,8 +149,10 @@ class PowerModules:
 
     # find best new power module available
     def get_model(self, install_date, power_needed=0, max_power=None, energy_needed=0, time_needed=0, best=False,
-                  server_model=None, allowed_fru_models=None):
-        buildable_modules = self.sql_db.get_buildable_modules(install_date, server_model=server_model, allowed=allowed_fru_models)
+                  server_model=None, roadmap=None, match_server_model=False):
+        buildable_modules = self.sql_db.get_buildable_modules(install_date, server_model=server_model, allowed=roadmap)
+        if match_server_model and (server_model is not None):
+            buildable_modules = buildable_modules[buildable_modules['model']==server_model]
         
         if not buildable_modules.empty:
             buildable_modules.loc[:, 'rating'] = buildable_modules.apply(lambda x: self.get_rating(x['model'], x['mark']), axis='columns')

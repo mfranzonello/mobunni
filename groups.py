@@ -65,8 +65,9 @@ class Technology(Group):
         Group.__init__(self)
         self.new_servers = kwargs['new_servers']
         self.existing_servers = kwargs['existing_servers']
-        self.allowed_fru_models = kwargs.get('allowed_fru_models')
-        self.site_code = kwargs['site_code'] if len(kwargs['site_code']) else None
+        self.roadmap = kwargs.get('roadmap')
+        self.site_code = kwargs['site_code']
+        self.site_name = self.site_code if len(self.site_code) else '< NEW SITE >'
 
         if self.has_existing_servers():
             model_string = 'existing'
@@ -74,8 +75,9 @@ class Technology(Group):
         elif self.has_new_servers():
             model_string = 'new'
             models = self.new_servers.get_models()
+            print(models)
 
-        self.data = [['site code', self.site_code if self.site_code is not None else 'NEW SITE'],
+        self.data = [['site code', self.site_name],
                      ['{} server models'.format(model_string), ' / '.join(models)]]
 
     # check if there are existing servers

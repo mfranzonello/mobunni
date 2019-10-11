@@ -3,7 +3,7 @@
 import os
 import getpass
 import string
-from math import floor
+from math import floor, ceil
 
 from pandas import ExcelWriter
 
@@ -18,7 +18,8 @@ class Excelerator:
 
         self.dataframes = {}
         self.print_index = {}
-        self.charts = []
+        self.charts = {}
+        self.secondary_charts = {}
         self.formats = []
 
     # get windows username to print to desktop by default
@@ -112,21 +113,39 @@ class Excelerator:
     def store_charts(self, charts):
         for chart in charts:
             sheetname = chart['sheetname']
-            df = self.dataframes[sheetname]
+            dfs = self.dataframes[sheetname]
+
+            if type(dfs) is not list:
+                dfs = [dfs]
+
+            df = dfs[chart.get('table number', 0)]
+
+            max_rows, max_columns = df.shape
+            rows = max_rows - chart.get('totals row', 0) - chart.get('extra row', 0)
+            chart_sheet_name = chart.get('chart sheet name')
 
             chart_columns = chart.get('columns')
             _, column_indices = self.get_indices(sheetname, chart_columns)
-            chart_zip = zip(column_indices, chart['colors'], chart['dashes'], chart['weights'])
-            columns = {column_index: {'color': color, 'dash': dash, 'weight': weight} for (column_index, color, dash, weight) in chart_zip}
+            #chart_zip = zip(column_indices, chart['colors'], chart['dashes'], chart['weights'])
 
-            max_rows, max_columns = df.shape
-            chart_sheet_name = chart.get('chart sheet name')
-            offset = None if chart_sheet_name else [chart.get('header row', 0) + 1, max_columns + 1]
+            items = {'colors': 'color',
+                     'dashes': 'dash',
+                     'weights': 'weight'}
 
-            self.charts.append({'sheetname': sheetname, 'columns': columns, 'rows': max_rows,
-                                'offset': offset, 'chart sheet name': chart_sheet_name, 'constants': chart.get('constants'),
-                                'y-axis': chart.get('y-axis'), 'y2-axis': chart.get('y2-axis'),
-                                'x-axis': chart.get('x-axis'), 'x2-axis': chart.get('x2-axis')})
+            columns = {column_indices[i]: {items[item]: chart.get(item)[i] for item in items if chart.get(item) is not None} for i in range(len(column_indices))}
+
+            if chart_sheet_name not in self.charts:
+                # primary chart
+                offset = None if chart_sheet_name else [chart.get('header row', 0) + 1, max_columns + 1]
+                self.charts[chart_sheet_name] = {'sheetname': sheetname, 'columns': columns, 'rows': rows, 'header row': chart.get('header row'),
+                                                 'type': chart.get('type'), 'subtype': chart.get('subtype'),
+                                                 'offset': offset, 'chart sheet name': chart_sheet_name, 'constants': chart.get('constants'),
+                                                 'y-axis': chart.get('y-axis'), 'y2-axis': chart.get('y2-axis'),
+                                                 'x-axis': chart.get('x-axis'), 'x2-axis': chart.get('x2-axis')}
+
+            else:
+                # secondary chart
+                self.secondary_charts[chart_sheet_name] = {'sheetname': sheetname, 'columns': columns, 'rows': rows, 'header row': chart.get('header row')}
         return
 
     # add values to an output sheet
@@ -166,7 +185,7 @@ class Excelerator:
             #        worksheet.write(row, column, df.loc[row, column], format_style)
      
     # add a chart to the output
-    def add_chart(self, writer, chart):
+    def add_chart(self, writer, chart, secondary_chart=None):
         sheetname = chart['sheetname']
         columns = chart['columns']
         rows = chart['rows']
@@ -182,41 +201,70 @@ class Excelerator:
             offset = [1, 1]
         workbook = writer.book
         worksheet = writer.sheets[sheetname]
-        chart = workbook.add_chart({'type': chart_type})
+        added_chart = workbook.add_chart({'type': chart_type})
 
+        # add line chart
         if chart_type in ['line', 'scatter']:
             for column in columns:
-                chart.add_series({'name': [sheetname, header_row, column],
-                                  'categories': [sheetname, 1, header_row, rows, category_column],
-                                  'values': [sheetname, 1, column, rows, column],
-                                  'border': {'color': columns[column]['color'], 'dash_type': columns[column]['dash'], 'width': columns[column]['weight']}
-                                  })
+                added_chart.add_series({'name': [sheetname, header_row, column],
+                                        'categories': [sheetname, header_row + 1, category_column, header_row + rows, category_column],
+                                        'values': [sheetname, header_row + 1, column, header_row + rows, column],
+                                        'border': {'color': columns[column]['color'], 'dash_type': columns[column]['dash'], 'width': columns[column]['weight']}
+                                        })
 
             if constants:
                 for constant in constants:
                     if constant['value']:
                         values = '={' + ','.join([str(constant['value'])] * (rows - header_row)) + '}'
-                        chart.add_series({'name': constant['name'],
-                                          'categories': [sheetname, 1, header_row, rows, category_column],
-                                          'values': values,
-                                          'border': {'color': constant['color'], 'dash_type': constant['dash']}})
+                        added_chart.add_series({'name': constant['name'],
+                                                'categories': [sheetname, header_row + 1, category_column, header_row + rows, category_column],
+                                                'values': values,
+                                                'border': {'color': constant['color'], 'dash_type': constant['dash']}})
+
+        # add second bar chart
+        if secondary_chart is not None:
+            sheetname_2 = secondary_chart['sheetname']
+            chart_type_2 = secondary_chart.get('type', 'column')
+            chart_subtype_2 = secondary_chart.get('subtype')
+            added_chart_2 = workbook.add_chart({'type': chart_type_2, 'subtype': chart_subtype_2})
+            if chart_type_2 in ['column']:
+                columns_2 = secondary_chart['columns']
+                rows_2 = secondary_chart['rows']
+                header_row_2 = secondary_chart.get('header row', 0)
+                category_column_2 = secondary_chart.get('category column', 0)
+
+                for column_2 in columns_2:
+                    added_chart_2.add_series({'name': [sheetname_2, header_row_2, column_2],
+                                              'categories': [sheetname_2, header_row_2 + 1, category_column_2, header_row_2 + rows_2, category_column_2],
+                                              'values': [sheetname_2, header_row_2 + 1, column_2, header_row_2 + rows_2, column_2],
+                                              'fill': {'color': columns_2[column_2]['color']},
+                                              'y2_axis': axes['y2'] is not None,
+                                              'x2_axis': axes['x2'] is not None})
+            
+                # set secondary axes
+                if axes['y2']:
+                    added_chart_2.set_y2_axis(axes['y2'])
+                if axes['x2']:
+                    added_chart_2.set_x2_axis(axes['x2'])
+
+                # combine charts
+                added_chart.combine(added_chart_2)
                
+        # set primary axes
         if axes['y']:
-            chart.set_y_axis(axes['y'])
-        if axes['y2']:
-            chart.set_y2_axis(axes['y2'])
+            added_chart.set_y_axis(axes['y'])
         if axes['x']:
-            chart.set_x_axis(axes['x'])
-        if axes['x2']:
-            chart.set_x2_axis(axes['x2'])
+            added_chart.set_x_axis(axes['x'])
 
-
+        # paste chart
         if offset:
+            # paste on same sheet as data
             insert_address = self.get_excel_address(offset[0], offset[1])
-            worksheet.insert_chart(insert_address, chart)
+            worksheet.insert_chart(insert_address, added_chart)
         else:
+            # paste on different sheet than data
             chartsheet = workbook.add_chartsheet(chart_sheet_name)
-            chartsheet.set_chart(chart)
+            chartsheet.set_chart(added_chart)
 
     # print output to Excel file and open
     def to_excel(self, start=False):
@@ -230,8 +278,10 @@ class Excelerator:
         for style in self.formats:
             self.add_format(writer, style['sheetname'], style['style'], style['columns'],
                             rows=style.get('rows'), width=style.get('width'))
-        for chart in self.charts:
-            self.add_chart(writer, chart)
+        for chart_sheet_name in self.charts:
+            chart = self.charts[chart_sheet_name]
+            secondary_chart = self.secondary_charts.get(chart_sheet_name)
+            self.add_chart(writer, chart, secondary_chart=secondary_chart)
 
         writer.save()
 
@@ -243,9 +293,13 @@ class ExcelePaint:
     percent_values = ['TMO', 'eff']
     comma_values = ['power', 'fuel', 'ceiling loss']
     date_values = ['date']
+    quant_values = ['created FRU']
 
     ranges = {'C': '#2E86C1', 'W': '#E74C3C', 'P': '#28B463'}
     ranges_lite = {'C': '#85C1E9', 'W': '#F1948A', 'P': '#82E0AA'}
+    
+    ranges_2 = {'created FRU': '#C43F35'}
+
     bounds = {'_max': 'dash', '': 'solid', '_min': 'dash', '_25': 'solid', '_75': 'solid'}
     bounds_lite = {'_limit': 'round_dot'}
     weights = {'_25': 1, '_75': 1}
@@ -271,6 +325,7 @@ class ExcelePaint:
         columns = {'percent': ['{}{}{}'.format(r, v, b) for v in ExcelePaint.percent_values for r in ranges for b in ExcelePaint.bounds],
                    'comma': ['{}{}'.format(v, b) for v in ExcelePaint.comma_values for b in ExcelePaint.bounds],
                    'date': ExcelePaint.date_values}
+        columns_2 = [r for r in ExcelePaint.ranges_2]
 
         styles = {'performance': {ns: columns[ns] for ns in ExcelePaint.num_styles if ns in columns},
                   'power': {'date': ['date'], 'comma': None},
@@ -285,7 +340,7 @@ class ExcelePaint:
         data = ExcelePaint._get_data(inputs, performance, cost_tables, power, efficiency, transactions, cash_flow)
         print_index = ExcelePaint._get_print_index(indices)
         formats = ExcelePaint._get_formats(windowed, styles)
-        charts = ExcelePaint._get_charts(windowed, limits, performance, columns['percent'], ranges)
+        charts = ExcelePaint._get_charts(windowed, limits, performance, cost_tables, columns['percent'], columns_2, ranges)
 
         return data, print_index, formats, charts
 
@@ -309,21 +364,26 @@ class ExcelePaint:
                     'rows': ExcelePaint.heights.get(sheetname)} for sheetname in styles \
             for (cols, style) in zip(styles[sheetname].values(), styles[sheetname].keys())]
 
-
         return formats
 
-    def _get_charts(windowed, limits, performance, chart_columns, ranges, max_frus=10):
+    def _get_charts(windowed, limits, performance, cost_tables, chart_columns, chart_columns_2, ranges):
+        key_1, key_2 = list(cost_tables.keys())[0:2]
+        cost_table = cost_tables[key_2]
+        header_row_2 = len(cost_tables[key_1]) + 2
+
         chart_colors = [ranges[r] for v in ExcelePaint.percent_values for r in ranges for b in ExcelePaint.bounds]
         chart_dashes = [ExcelePaint.bounds.get(b, 'solid') for v in ExcelePaint.percent_values for r in ranges for b in ExcelePaint.bounds]
         chart_weights = [ExcelePaint.weights.get(b, 2.25) for v in ExcelePaint.percent_values for r in ranges for b in ExcelePaint.bounds]
+
+        chart_2_colors = [ExcelePaint.ranges_2[r] for r in ExcelePaint.ranges_2]
 
         chart_y_axis = {'name': 'performance',
                         'max': 1.0, 'min': floor(10*performance[chart_columns].min().min())/10,
                         'major_gridlines': {'visible': True, 'line': {'color': '#F4F6F6'}}}
         chart_y2_axis = {'name': 'FRU replacements',
-                         'max': max_frus * 4, 'min': 0}
-        chart_x_axis = {'name': 'date'}
-        chart_x2_axis = {}
+                         'max': ceil(cost_table[chart_columns_2[0]][0:-1].max() * 4), 'min': 0}
+        chart_x_axis = {'name': 'date', 'visible': True}
+        chart_x2_axis = {'visible': True}
 
         chart_constants = [{'name': '{}{}{}'.format(r, v, b),
                             'value': limits['{}{}'.format(r, v)],
@@ -334,7 +394,10 @@ class ExcelePaint:
                    'colors': chart_colors, 'dashes': chart_dashes, 'weights': chart_weights,
                    'chart sheet name': 'graph', 'constants': chart_constants,
                    'y-axis': chart_y_axis, 'y2-axis': chart_y2_axis, 'x-axis': chart_x_axis, 'x2-axis': chart_x2_axis},
-                  #{'sheetname': 'costs', 'type': 'column', 'columns': None},
+                  {'sheetname': 'costs', 'type': 'column', 'subtype': 'stacked', 'columns': chart_columns_2,
+                   'colors': chart_2_colors,
+                   'header row': header_row_2, 'table number': -1, 'totals row': True, 'extra row': True,
+                   'chart sheet name': 'graph'},
                   ]
 
         return charts
