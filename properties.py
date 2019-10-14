@@ -221,15 +221,15 @@ class Site:
                                              nameplate_needed=nameplate_needed, n_enclosures=n_enclosures)
                 
             #enclosure_number = 0
-            for enclosure_number in existing_servers.get_enclosure_numbers(server_number):
+            for fru_number in existing_servers.get_enclosure_numbers(server_number):
                 # loop through power modules
                 enclosure_number = server.get_empty_enclosure()
 
-                performance = existing_servers[server_number, enclosure_number]['performance']
-                operating_time = existing_servers[server_number, enclosure_number]['operating time']
+                performance = existing_servers[server_number, fru_number]['performance']
+                operating_time = existing_servers[server_number, fru_number]['operating time']
                 fru_fit = {'performance': performance, 'operating time': operating_time.years + operating_time.months}
 
-                install_date = existing_servers[server_number, enclosure_number]['install date']
+                install_date = existing_servers[server_number, fru_number]['install date']
                 current_date = install_date + relativedelta(months=len(performance))
 
                 fru_model, fru_mark = self.shop.get_latest_model('module', server.model, install_date, match_server_model=True)

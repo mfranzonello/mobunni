@@ -3,6 +3,7 @@
 from dateutil.relativedelta import relativedelta
 from datetime import date
 from random import randrange
+from math import floor
 
 from pandas import DataFrame, Series, concat, to_datetime, isna
 from numpy import nan
@@ -79,12 +80,12 @@ class LogBook:
     def summarize_transactions(self, site_number):
         transactions_yearly = self.get_transactions()
         transactions_yearly.insert(0, 'year', to_datetime(transactions_yearly['date']).dt.year)
-        transactions_gb = transactions_yearly[['year', 'site', 'action', 'service cost']].groupby(['year', 'site', 'action'])
+        transactions_gb = transactions_yearly[['year', 'site', 'action', 'service cost', 'power']].groupby(['year', 'site', 'action'])
         
-        transactions_sum = transactions_gb.sum()[['service cost']]
+        transactions_sum = transactions_gb.sum()[['service cost', 'power']]
         transactions_count = transactions_gb.count()[['service cost']].rename(columns={'service cost': 'count'})
         
-        transactions_summarized = concat([transactions_count, transactions_sum], axis='columns').reset_index()
+        transactions_summarized = concat([transactions_sum, transactions_count], axis='columns').reset_index()
 
         transactions = self.identify_target(transactions_summarized, site_number)
 
@@ -353,14 +354,20 @@ class Shop:
 
         else:
             # there is not a FRU available, so create a new one
+            if initial:
+                wait_period = None
+            else:
+                wait_period = relativedelta(years=floor(self.thresholds['fru availability']),
+                                            months=round(12 * (self.thresholds['fru availability'] - floor(self.thresholds['fru availability']))))
+
             if self.best:
-                module = self.power_modules.get_model(install_date,
+                module = self.power_modules.get_model(install_date, wait_period=wait_period,
                                                       power_needed=power_needed, max_power=max_power,
                                                       energy_needed=energy_needed, time_needed=time_needed,
                                                       best=self.best, server_model=server_model, roadmap=self.roadmap)
 
             else:
-                module = self.power_modules.get_model(install_date,
+                module = self.power_modules.get_model(install_date, wait_period=wait_period,
                                                       power_needed=power_needed, max_power=max_power,
                                                       energy_needed=energy_needed, time_needed=time_needed,
                                                       bespoke=not initial, server_model=server_model, roadmap=self.roadmap)

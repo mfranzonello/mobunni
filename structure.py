@@ -217,8 +217,9 @@ class SQLDB:
         return server_model
 
     # select power modules avaible to create at a date
-    def get_buildable_modules(self, install_date, server_model=None, allowed=None):
-        sql = 'SELECT model, mark FROM Module WHERE initial_date <= "{}" AND NOT bespoke'.format(install_date)
+    def get_buildable_modules(self, install_date, server_model=None, allowed=None, wait_period=None):
+        availability_date = install_date if wait_period is None else install_date + wait_period
+        sql = 'SELECT model, mark FROM Module WHERE initial_date <= "{}" AND NOT bespoke'.format(availability_date)
         buildable_modules = read_sql(sql, self.connection)
 
         sql = 'SELECT DISTINCT model, mark FROM PowerCurve'

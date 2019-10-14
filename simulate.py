@@ -223,9 +223,12 @@ class Simulation:
         cost_years = self.scenario.get_years()
         cost_summary_dollars = self.pivot_and_total(cost_summary, 'year', 'action', 'service cost', years=cost_years, yearly=True)
         cost_summary_quants = self.pivot_and_total(cost_summary, 'year', 'action', 'count', years=cost_years, yearly=False)
+        cost_summary_power = self.pivot_and_total(cost_summary, 'year', 'action', 'power', years=cost_years, yearly=True)
+        cost_summary_power.loc[:, 'stored FRU'] *= -1 # stored kW should be negative
        
         cost_tables = {'dollars': cost_summary_dollars,
-                       'quants': cost_summary_quants}
+                       'quants': cost_summary_quants,
+                       'power': cost_summary_power}
 
         return cost_tables
 

@@ -44,6 +44,7 @@ class PowerCurves:
 
         else:
             # FRU has already been in the field, find least error
+            max_operating_time = min(len(self.curves)-1, fit['operating time'])
             if ('performance' in fit) and ('operating time' in fit):
                 # pulled from API
                 to_fit = fit['performance'].iloc[len(fit['performance'])-fit['operating time']:, :].reset_index()['kw']
@@ -52,12 +53,12 @@ class PowerCurves:
 
                 filtered_curves = self.curves.loc[:, errors[errors == errors.min()].index.to_list()].columns
 
-                allowed_curves = DataFrame(data=[fit['performance']['kw'].to_list() + self.curves.loc[fit['operating time']:, c].to_list() for c in filtered_curves],
+                allowed_curves = DataFrame(data=[fit['performance']['kw'].to_list() + self.curves.loc[max_operating_time:, c].to_list() for c in filtered_curves],
                                            index=filtered_curves).T
 
             elif ('operating time' in fit) and ('current power' in fit):
                 # blind to starting curve
-                expected_range = self.curves.loc[min(len(self.curves)-1, fit['operating time'])]
+                expected_range = self.curves.loc[max_operating_time]
                 observed_power = fit['current power']
 
                 if observed_power > expected_range.max():
@@ -72,8 +73,8 @@ class PowerCurves:
                 else:
                     # operating in expected range, so choose from range of possibilities
                     allowed_curves = self.curves[\
-                        ((self.curves.loc[fit['operating time']] >= fit['current power']) & \
-                         (self.curves.loc[fit['operating time']] <= fit['current power'])).index]
+                        ((self.curves.loc[max_operating_time] >= fit['current power']) & \
+                         (self.curves.loc[max_operating_time] <= fit['current power'])).index]
         
         return allowed_curves
         
@@ -148,9 +149,10 @@ class PowerModules:
         return power_curves, efficiency_curves
 
     # find best new power module available
-    def get_model(self, install_date, power_needed=0, max_power=None, energy_needed=0, time_needed=0, best=False,
+    def get_model(self, install_date, wait_period=None, power_needed=0, max_power=None, energy_needed=0, time_needed=0, best=False,
                   server_model=None, roadmap=None, match_server_model=False):
-        buildable_modules = self.sql_db.get_buildable_modules(install_date, server_model=server_model, allowed=roadmap)
+
+        buildable_modules = self.sql_db.get_buildable_modules(install_date, server_model=server_model, allowed=roadmap, wait_period=wait_period)
         if match_server_model and (server_model is not None):
             buildable_modules = buildable_modules[buildable_modules['model']==server_model]
         

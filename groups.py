@@ -75,7 +75,6 @@ class Technology(Group):
         elif self.has_new_servers():
             model_string = 'new'
             models = self.new_servers.get_models()
-            print(models)
 
         self.data = [['site code', self.site_name],
                      ['{} server models'.format(model_string), ' / '.join(models)]]
@@ -116,6 +115,8 @@ class Thresholds(Group):
                      ['early deploy target TMO padding', self.thresholds.get('tmo pad')],
                      ['early deploy target efficiency padding', self.thresholds.get('eff pad')],
                      ['process time for FRU redeployment', self.thresholds.get('deploy months')],
+                     ['power module as FRU availability wait period', self.thresholds.get('fru availability')],
+                     ['refurbished FRU availability wait period', self.thresholds.get('refurb availability')],
                      ]
 
     def get_values(self):

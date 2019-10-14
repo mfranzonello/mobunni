@@ -145,7 +145,8 @@ class Excelerator:
 
             else:
                 # secondary chart
-                self.secondary_charts[chart_sheet_name] = {'sheetname': sheetname, 'columns': columns, 'rows': rows, 'header row': chart.get('header row')}
+                self.secondary_charts[chart_sheet_name] = {'sheetname': sheetname, 'columns': columns, 'rows': rows, 'header row': chart.get('header row'),
+                                                           'type': chart.get('type'), 'subtype': chart.get('subtype')}
         return
 
     # add values to an output sheet
@@ -226,6 +227,7 @@ class Excelerator:
             sheetname_2 = secondary_chart['sheetname']
             chart_type_2 = secondary_chart.get('type', 'column')
             chart_subtype_2 = secondary_chart.get('subtype')
+
             added_chart_2 = workbook.add_chart({'type': chart_type_2, 'subtype': chart_subtype_2})
             if chart_type_2 in ['column']:
                 columns_2 = secondary_chart['columns']
@@ -238,6 +240,7 @@ class Excelerator:
                                               'categories': [sheetname_2, header_row_2 + 1, category_column_2, header_row_2 + rows_2, category_column_2],
                                               'values': [sheetname_2, header_row_2 + 1, column_2, header_row_2 + rows_2, column_2],
                                               'fill': {'color': columns_2[column_2]['color']},
+                                              'overlap': 100 if chart_subtype_2 == 'stacked' else 0,
                                               'y2_axis': axes['y2'] is not None,
                                               'x2_axis': axes['x2'] is not None})
             
@@ -298,11 +301,11 @@ class ExcelePaint:
     ranges = {'C': '#2E86C1', 'W': '#E74C3C', 'P': '#28B463'}
     ranges_lite = {'C': '#85C1E9', 'W': '#F1948A', 'P': '#82E0AA'}
     
-    ranges_2 = {'created FRU': '#C43F35'}
+    ranges_2 = {'created FRU': '#C43F35', 'deployed FRU': '#FFBE0D', 'stored FRU': '#702CE6'}
 
     bounds = {'_max': 'dash', '': 'solid', '_min': 'dash', '_25': 'solid', '_75': 'solid'}
     bounds_lite = {'_limit': 'round_dot'}
-    weights = {'_25': 1, '_75': 1}
+    weights = {w: 1 for w in ['_25', '_75', '_min', '_max']}
 
     num_styles = {'percent': '0.00%',
                   'comma': '#,##0',
@@ -325,7 +328,9 @@ class ExcelePaint:
         columns = {'percent': ['{}{}{}'.format(r, v, b) for v in ExcelePaint.percent_values for r in ranges for b in ExcelePaint.bounds],
                    'comma': ['{}{}'.format(v, b) for v in ExcelePaint.comma_values for b in ExcelePaint.bounds],
                    'date': ExcelePaint.date_values}
-        columns_2 = [r for r in ExcelePaint.ranges_2]
+
+        cost_key = 'power'
+        columns_2 = [r for r in ExcelePaint.ranges_2 if r in cost_tables[cost_key].columns]
 
         styles = {'performance': {ns: columns[ns] for ns in ExcelePaint.num_styles if ns in columns},
                   'power': {'date': ['date'], 'comma': None},
@@ -340,7 +345,7 @@ class ExcelePaint:
         data = ExcelePaint._get_data(inputs, performance, cost_tables, power, efficiency, transactions, cash_flow)
         print_index = ExcelePaint._get_print_index(indices)
         formats = ExcelePaint._get_formats(windowed, styles)
-        charts = ExcelePaint._get_charts(windowed, limits, performance, cost_tables, columns['percent'], columns_2, ranges)
+        charts = ExcelePaint._get_charts(windowed, limits, ranges, performance, cost_tables, columns['percent'], columns_2, cost_key=cost_key)
 
         return data, print_index, formats, charts
 
@@ -366,23 +371,28 @@ class ExcelePaint:
 
         return formats
 
-    def _get_charts(windowed, limits, performance, cost_tables, chart_columns, chart_columns_2, ranges):
-        key_1, key_2 = list(cost_tables.keys())[0:2]
-        cost_table = cost_tables[key_2]
-        header_row_2 = len(cost_tables[key_1]) + 2
+    def _get_charts(windowed, limits, ranges, performance, cost_tables, chart_columns, chart_columns_2, cost_key):
+        # find cost table to use for bar graph
+        cost_keys = list(cost_tables.keys())
+        cost_table = cost_tables[cost_key][chart_columns_2].iloc[0:-2] ## -2 = -1 for totals row -1 for last year storage
+
+        header_row_2 = sum(len(cost_tables[c_k]) + 2 for c_k in cost_keys[0:cost_keys.index(cost_key)])
+
+        chart_splitter = 1 / min(l for l in [limits['{}{}'.format(r, v)] for v in ExcelePaint.percent_values for r in ranges] if l is not None) + 1
 
         chart_colors = [ranges[r] for v in ExcelePaint.percent_values for r in ranges for b in ExcelePaint.bounds]
         chart_dashes = [ExcelePaint.bounds.get(b, 'solid') for v in ExcelePaint.percent_values for r in ranges for b in ExcelePaint.bounds]
         chart_weights = [ExcelePaint.weights.get(b, 2.25) for v in ExcelePaint.percent_values for r in ranges for b in ExcelePaint.bounds]
 
-        chart_2_colors = [ExcelePaint.ranges_2[r] for r in ExcelePaint.ranges_2]
+        chart_colors_2 = [ExcelePaint.ranges_2[r] for r in chart_columns_2]
 
         chart_y_axis = {'name': 'performance',
-                        'max': 1.0, 'min': floor(10*performance[chart_columns].min().min())/10,
+                        'max': 1.0, 'min': 0,
                         'major_gridlines': {'visible': True, 'line': {'color': '#F4F6F6'}}}
-        chart_y2_axis = {'name': 'FRU replacements',
-                         'max': ceil(cost_table[chart_columns_2[0]][0:-1].max() * 4), 'min': 0}
-        chart_x_axis = {'name': 'date', 'visible': True}
+        chart_y2_axis = {'name': 'FRU replacement kW',
+                         'max': ceil(cost_table.abs().sum(axis='columns').max() * chart_splitter / 100) * 100,
+                         'min': floor(cost_table.where(cost_table < 0).sum(axis='columns').min() / 100) * 100}
+        chart_x_axis = {'name': 'date', 'visible': True, 'major_unit': 1, 'major_unit_type': 'years'}
         chart_x2_axis = {'visible': True}
 
         chart_constants = [{'name': '{}{}{}'.format(r, v, b),
@@ -395,7 +405,7 @@ class ExcelePaint:
                    'chart sheet name': 'graph', 'constants': chart_constants,
                    'y-axis': chart_y_axis, 'y2-axis': chart_y2_axis, 'x-axis': chart_x_axis, 'x2-axis': chart_x2_axis},
                   {'sheetname': 'costs', 'type': 'column', 'subtype': 'stacked', 'columns': chart_columns_2,
-                   'colors': chart_2_colors,
+                   'colors': chart_colors_2,
                    'header row': header_row_2, 'table number': -1, 'totals row': True, 'extra row': True,
                    'chart sheet name': 'graph'},
                   ]

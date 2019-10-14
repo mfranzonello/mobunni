@@ -279,8 +279,8 @@ class Inspector:
 
     # check how much power can be installed without ceiling loss for plus ones and if a new FRU exists
     def check_max_power(site, new_fru=False):
-        # ensure no ceiling loss if there are plus ones
-        max_power = Inspector.look_for_balance(site).get('max headroom') if site.has_empty() else None
+        # ensure no ceiling loss
+        max_power = Inspector.look_for_balance(site).get('max headroom')
         installable = (new_fru is not None) and ((max_power is None) or (max_power > 0))
 
         return max_power, installable
@@ -289,10 +289,10 @@ class Inspector:
     def check_deploys(site, commitments, cumulative=False, periodic=False):
         lookahead = site.get_months_remaining()
 
-        #print()
-        #print('LAST PTMO: {:0.2%}'.format(site.monitor.get_result('performance', 'PTMO', site.month)))
-        #for m in range(lookahead):
-        #    print('NEXT PTMO ({}): {:0.2%}'.format(m+1, site.get_site_power(lookahead=m+1) / site.system_size))
+        max_power, installable = Inspector.check_max_power(site)
+        # only check if there is room to add
+        ##if max_power <= site.shop.thresholds.get('ceiling loss', 0):
+        ##    pass
 
         # check during any period before no deployments allowed
         if cumulative:
@@ -301,17 +301,13 @@ class Inspector:
             ##StopWatch.timer('get expected CTMO')
             expected_ctmo = (site.get_energy_produced() + site.get_energy_remaining()) / (site.contract.length * 12) / site.system_size
             server_dc, enclosure_dc = Inspector.get_worst_fru(site, 'energy')
-            max_power, installable = Inspector.check_max_power(site)
+            
             ##StopWatch.timer('get expected CTMO')
 
             while installable and \
                 Inspector.check_fail(site, expected_ctmo, site.limits['CTMO'], pad=site.shop.thresholds['tmo pad']) and \
                 Inspector.check_exists(server_dc, enclosure_dc):
                 
-                ##print()
-                ##print(Inspector.get_replaceable_frus(site, by='energy'))
-                ##print('max power: {}, installable: {}, expected ctmo: {}, server_dc, enclosure_dc: {}'.format(max_power, installable, expected_ctmo, [server_dc, enclosure_dc]))
-
                 additional_energy = (site.limits['CTMO'] + site.shop.thresholds['tmo pad']) * site.contract.length * 12 * site.system_size \
                     - (site.get_energy_produced() + site.get_energy_remaining())
             
@@ -322,16 +318,13 @@ class Inspector:
                 StopWatch.timer('get best fit FRU [early deploy]')
                 reason = 'early deploy: expected CTMO {:0.02%} below target {:0.02%}'.format(expected_ctmo, site.limits['CTMO'] + site.shop.thresholds['tmo pad'])
                 new_fru = site.shop.get_best_fit_fru(site.servers[server_dc].model, site.get_date(), site.number, server_dc, enclosure_dc,
-                                                        energy_needed=energy_needed, time_needed=lookahead, max_power=max_power, reason=reason)
+                                                     energy_needed=energy_needed, time_needed=lookahead, max_power=max_power, reason=reason)
                 StopWatch.timer('get best fit FRU [early deploy]')
 
                 site.replace_and_balance(server_dc, enclosure_dc, new_fru, reason=reason)
                 expected_ctmo = (site.get_energy_produced() + site.get_energy_remaining()) / (site.contract.length * 12) / site.system_size
                 server_dc, enclosure_dc = Inspector.get_worst_fru(site, 'energy')
                 max_power, installable = Inspector.check_max_power(site, new_fru=new_fru)
-
-                ##print(Inspector.get_replaceable_frus(site, by='energy'))
-                ##print('max power: {}, installable: {}, expected ctmo: {}, server_dc, enclosure_dc: {}'.format(max_power, installable, expected_ctmo, [server_dc, enclosure_dc]))
 
                 site.monitor.store_result('power', 'expected CTMO', site.get_month(), expected_ctmo)
 
@@ -361,15 +354,10 @@ class Inspector:
             # estimate final PTMO if FRUs degrade as expected and add FRUs if needed, with padding
             expected_ptmo = site.get_site_power(lookahead=lookahead) / site.system_size
             server_dp, enclosure_dp = Inspector.get_worst_fru(site, 'power')
-            max_power, installable = Inspector.check_max_power(site)
 
             while installable and \
                 Inspector.check_fail(site, expected_ptmo, site.limits['PTMO'], pad=site.shop.thresholds['tmo pad']) and \
                 Inspector.check_exists(server_dp, enclosure_dp):
-
-                ##print()
-                ##print(Inspector.get_replaceable_frus(site, by='power'))
-                ##print('max power: {}, installable: {}, expected ptmo: {}, server_dp, enclosure_dp: {}'.format(max_power, installable, expected_ptmo, [server_dp, enclosure_dp]))
 
                 additional_power = (site.limits['PTMO'] + site.shop.thresholds['tmo pad'] - expected_ptmo) * site.system_size
                    
@@ -384,9 +372,6 @@ class Inspector:
                 expected_ptmo = site.get_site_power(lookahead=lookahead) / site.system_size
                 server_dp, enclosure_dp = Inspector.get_worst_fru(site, 'power')
                 max_power, installable = Inspector.check_max_power(site, new_fru=new_fru)
-
-                ##print(Inspector.get_replaceable_frus(site, by='power'))
-                ##print('max power: {}, installable: {}, expected ptmo: {}, server_dp, enclosure_dp: {}'.format(max_power, installable, expected_ptmo, [server_dp, enclosure_dp]))
 
                 site.monitor.store_result('power', 'expected PTMO', site.get_month(), expected_ptmo)
 

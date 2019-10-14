@@ -229,7 +229,7 @@ class ExcelInt:
 
     # convert excel float to datetime
     def xldate(self, date_float):
-        if len(date_float):
+        if type(date_float) is float:
             date = xlrd.xldate_as_datetime(date_float, 0).date()
         else:
             date = None
