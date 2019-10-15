@@ -218,7 +218,7 @@ class Simulation:
         else:
             costs = concat(self.costs)
 
-        cost_summary = costs[costs['target']].drop('target', axis='columns').groupby(['year', 'action']).mean().reset_index()
+        cost_summary = costs[costs['target']].drop('target', axis='columns').groupby(['year', 'action']).sum().div(len(self.costs)).reset_index()
 
         cost_years = self.scenario.get_years()
         cost_summary_dollars = self.pivot_and_total(cost_summary, 'year', 'action', 'service cost', years=cost_years, yearly=True)

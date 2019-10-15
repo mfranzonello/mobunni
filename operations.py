@@ -327,6 +327,13 @@ class Shop:
             model = self.hot_boxes.get_model(base_model, **kwargs)
             return model
 
+    # get powers available to install
+    def get_gap_fillers(self):
+        powers_in_storage = self.list_powers(ALLOWED_MODELS)
+        powers_to_create = SOMETHING
+        gap_filler = min(powers_in_storage + powers_to_create)
+        return gap_filler
+
     # use a stored FRU or create a new one for power and energy requirements
     def get_best_fit_fru(self, server_model, install_date, site_number, server_number, enclosure_number,
                          power_needed=0, energy_needed=0, time_needed=0, max_power=None, initial=False, reason=None):
