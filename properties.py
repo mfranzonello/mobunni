@@ -255,7 +255,7 @@ class Site:
                 fru_model, fru_mark = self.shop.get_latest_model('module', server.model, self.get_date(), match_server_model=True)
 
                 fru = self.shop.create_fru(fru_model, fru_mark, self.get_date(), self.number, server_number, enclosure_number,
-                                            initial=True, reason='populating enclosure')
+                                           initial=True, reason='populating enclosure')
 
                 server.replace_fru(enclosure_number, fru)
 

@@ -315,7 +315,7 @@ class Shop:
             return model
 
         elif category == 'module':
-            module = self.power_modules.get_model(install_date, best=True, server_model=base_model, **kwargs)
+            module = self.power_modules.get_model(install_date, best=True, server_model=base_model, roadmap=self.roadmap, **kwargs)
             if module is not None:
                 model, mark = module
             else:
