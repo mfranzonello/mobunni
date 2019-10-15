@@ -283,7 +283,7 @@ class ExcelInt:
                 'start_date': self.xldate, 'contract_length': int,
                 'site_code': str,
                 'allow_repairs': bool, 'redeploy_level': self.inter, 'use_best_only': bool, 'allow_early_deploy': bool,
-                } ##'target_size': float, 'nonreplace': str, 'contract_start': float, 'new_server_base': str, 'new_server_model': str, 
+                }
 
         tables = ['NonReplace', 'NewServers', 'Roadmap']
 
@@ -294,7 +294,7 @@ class ExcelInt:
          start_date, contract_length,
          site_code,
          repair, junk_level, best, early_deploy,
-         ] = values_keys ##new_server_base, new_server_model, target_size, start_month, non_replace_string,
+         ] = values_keys
 
         [non_replace, servers, roadmap] = values_tables
 

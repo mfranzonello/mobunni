@@ -7,10 +7,10 @@ class Portfolio:
         self.number = 0
 
     def generate_contract(self, deal, length, target_size, start_date, start_month,
-                 non_replace, limits, start_ctmo=1.0):
+                 non_replace, limits):
         self.number += 1
         contract = Contract(self.number, deal, length, target_size, start_date, start_month,
-                            non_replace, limits, start_ctmo)
+                            non_replace, limits)
         self.contracts.append(contract)
         return contract
 
@@ -18,7 +18,7 @@ class Portfolio:
 class Contract:
     limits_values = ['PTMO', 'WTMO', 'CTMO', 'Peff', 'Weff', 'Ceff', 'window']
     def __init__(self, number, deal, length, target_size, start_date, start_month,
-                 non_replace, limits, start_ctmo):
+                 non_replace, limits):
         self.number = number
         self.deal = deal
 
@@ -29,7 +29,6 @@ class Contract:
         self.non_replace = non_replace
         self.limits = limits
         self.windowed = (limits['WTMO'] or limits['Weff']) and limits['window']
-        self.start_ctmo = start_ctmo
 
     # change the terms of the contract
     def change_terms(self, **kwargs):
@@ -38,8 +37,7 @@ class Contract:
                             start_date=kwargs.get('length', self.start_date),
                             start_month=kwargs.get('start_month', self.start_month),
                             non_replace=kwargs.get('non_replace', self.non_replace),
-                            limits={value: kwargs.get(value, self.limits[value]) for value in Contract.limits_values},
-                            start_ctmo=self.start_ctmo)
+                            limits={value: kwargs.get(value, self.limits[value]) for value in Contract.limits_values})
 
         return contract
 

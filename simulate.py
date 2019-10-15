@@ -96,11 +96,10 @@ class Simulation:
         site_deal = 'CapEx' # 'PPA'
         site_length = self.scenario.commitments.length
         site_non_replace = self.scenario.commitments.non_replace
-        site_start_ctmo = self.scenario.commitments.start_ctmo
 
         # update contract
         contract = self.portfolio.generate_contract(site_deal, site_length, site_size, site_start_date, site_start_month,
-                                                    site_non_replace, site_limits, start_ctmo=site_start_ctmo)
+                                                    site_non_replace, site_limits)
         site = Site(site_number, fleet.shop, contract)
 
         if (site_number == fleet.target_site) and self.scenario.technology.has_existing_servers():
@@ -218,7 +217,8 @@ class Simulation:
         else:
             costs = concat(self.costs)
 
-        cost_summary = costs[costs['target']].drop('target', axis='columns').groupby(['year', 'action']).sum().div(len(self.costs)).reset_index()
+        cost_div = len(self.costs) if last else 1
+        cost_summary = costs[costs['target']].drop('target', axis='columns').groupby(['year', 'action']).sum().div(cost_div).reset_index()
 
         cost_years = self.scenario.get_years()
         cost_summary_dollars = self.pivot_and_total(cost_summary, 'year', 'action', 'service cost', years=cost_years, yearly=True)

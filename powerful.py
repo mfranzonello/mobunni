@@ -196,11 +196,6 @@ class PowerModules:
         base = self.sql_db.get_module_base(model, mark)
         return base
 
-    # find bespoke options for a power module model
-    def get_bespokes(self, model, base, install_date):
-        marks = [base] + self.sql_db.get_module_bespokes(model, base, install_date)
-        return marks
-
     # return initial power rating of a given module
     def get_rating(self, model, mark):
         rating = self.sql_db.get_module_rating(model, mark)
@@ -230,9 +225,9 @@ class HotBoxes:
     def __init__(self, sql_db):
         self.sql_db = sql_db
 
-    def get_model(self, server_model):
-        model, rating = self.sql_db.get_enclosure_model(server_model)
-        return model, rating
+    def get_model_number(self, server_model):
+        model_number, rating = self.sql_db.get_enclosure_model_number(server_model)
+        return model_number, rating
 
 # details of energy servers
 class EnergyServers:

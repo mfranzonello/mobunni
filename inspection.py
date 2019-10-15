@@ -13,10 +13,7 @@ class Monitor:
                            'ceiling loss']
     power_eff_columns = ['date'] + ['expected PTMO', 'expected CTMO'] + ['total']
 
-    def __init__(self, site_number, start_date, contract_length, windowed, start_ctmo=1.0, start_eff=1.0):
-        self._starting_cumulative = {'tmo': start_ctmo,
-                                     'efficiency': start_eff}
-
+    def __init__(self, site_number, start_date, contract_length, windowed):
         self.contract_date_range = date_range(start=start_date, periods=contract_length*12, freq='MS').date
         self._performance = DataFrame(columns=Monitor.performance_columns,
                                     index=range(contract_length*12),
@@ -46,11 +43,6 @@ class Monitor:
 
         self._power = power_eff.reindex(reindex, axis='columns')
         self._efficiency = self._power.drop(drop, axis='columns')
-
-    # return the starting cumulative TMO and cumulative efficiency
-    def get_starting_cumulative(self, table):
-        value = self._starting_cumulative[table]
-        return value
 
     # add a result from a site inspection
     def store_result(self, table, column, month, value):

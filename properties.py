@@ -124,7 +124,7 @@ class Site:
         if self.get_month() > 0:
             ctmo = self.monitor.get_result('performance', 'CTMO', self.get_month() - 1)
         else:
-            ctmo = self.monitor.get_starting_cumulative('tmo')
+            ctmo = 0
         site_energy = (ctmo * (self.get_month() - 1)) * self.system_size + self.get_site_power()
         return site_energy
 

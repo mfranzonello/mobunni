@@ -149,22 +149,11 @@ class SQLDB:
         base = read_sql(sql, self.connection).iloc[0].squeeze()
         return base
 
-    # select new and bespoke options for overhauls
-    def get_module_bespokes(self, model, base, install_date):
-        where_list = [('model', 'IS', model),
-                      ('base', 'IS', base),
-                      ('bespoke', 'IS', 1),
-                      ('initial_date', '<=', install_date)]
-        wheres = ' AND '.join('({} {} "{}")'.format(this, to, that) for (this, to, that) in where_list)
-        sql = 'SELECT mark FROM Module WHERE {}'.format(model, base, install_date, wheres)
-        bespokes = read_sql(sql, self.connection).squeeze()
-        return bespokes
-
     # select enclosure compatible with energy server
-    def get_enclosure_model(self, server_model):
-        sql = 'SELECT model, rating FROM Enclosure WHERE server IS "{}"'.format(server_model)
-        model, rating = read_sql(sql, self.connection).iloc[0, :]
-        return model, rating
+    def get_enclosure_model_number(self, server_model):
+        sql = 'SELECT model_number, rating FROM Enclosure WHERE model IS "{}"'.format(server_model)
+        model_number, rating = read_sql(sql, self.connection).iloc[0, :]
+        return model_number, rating
 
     # select default server sizes
     def get_server_nameplates(self, server_model_class, target_size):
@@ -233,7 +222,7 @@ class SQLDB:
     # select power modules avaible to create at a date
     def get_buildable_modules(self, install_date, server_model=None, allowed=None, wait_period=None):
         availability_date = install_date if wait_period is None else install_date + wait_period
-        sql = 'SELECT model, mark FROM Module WHERE initial_date <= "{}" AND NOT bespoke'.format(availability_date)
+        sql = 'SELECT model, mark FROM Module WHERE initial_date <= "{}"'.format(availability_date) ## AND NOT bespoke
         buildable_modules = read_sql(sql, self.connection)
 
         sql = 'SELECT DISTINCT model, mark FROM PowerCurve'

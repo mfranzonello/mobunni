@@ -17,8 +17,7 @@ class FRU:
         self.mark = mark
 
         self.install_date = install_date
-        ##operating_time = relativedelta(current_date, install_date)
-        self.month = 0 ##operating_time.years*12 + operating_time.months
+        self.month = 0
         
         self.power_curves = power_curves
         self.power_curve = self.power_curves.pick_curve(allowed=[0,1], fit=fit)
@@ -154,13 +153,14 @@ class FRU:
         
 # cabinet in energy server that can house a FRU
 class Enclosure:  
-    def __init__(self, serial, number, model, rating):
+    def __init__(self, serial, number, model, model_number, rating):
         self.serial = serial
         self.number = number
         self.model = model
+        self.model_number = model_number
         self.fru = None
 
-        self.rating = rating ## maximum amount of power output
+        self.rating = rating # maximum amount of power output
 
     # enclosure can hold a FRU
     def is_empty(self):
@@ -206,6 +206,12 @@ class Enclosure:
             efficiency = self.fru.get_efficiency(lookahead=lookahead)
 
         return efficiency
+
+    # upgrade enclosure model type
+    def upgrade_enclosure(self, model, model_number, rating):
+        self.model = model
+        self.model_number = model_number
+        self.rating = rating
 
 # housing unit for power modules
 class Server:
