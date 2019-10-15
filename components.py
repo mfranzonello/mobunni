@@ -117,7 +117,7 @@ class FRU:
             # FRU is at end of life and unrepairable
             deviated = False
         else:
-            deviated = 1 - self.get_power() / self.get_power(ideal=True) > threshold ## DIV BY ZERO???
+            deviated = 1 - self.get_power() / self.get_power(ideal=True) > threshold ## DIV BY ZERO??
      
         return deviated
 
