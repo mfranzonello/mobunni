@@ -217,7 +217,7 @@ class Simulation:
         else:
             costs = concat(self.costs)
 
-        cost_div = len(self.costs) if last else 1
+        cost_div = len(self.costs) if not last else 1
         cost_summary = costs[costs['target']].drop('target', axis='columns').groupby(['year', 'action']).sum().div(cost_div).reset_index()
 
         cost_years = self.scenario.get_years()
