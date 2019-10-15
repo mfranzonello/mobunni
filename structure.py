@@ -10,9 +10,14 @@ from debugging import StopWatch
 
 # ask user for project selection
 class Project:
-    folder = r'projects'
-    start = 'bpm_inputs_'
-    end = '.xlsx'
+    '''
+    This class emulates an input UI. It searches a repository
+    for input files, prompts the user for which file to run,
+    and extracts details.
+    '''
+    folder = r'projects' # input files repository
+    start = 'bpm_inputs_' # starting name of input files
+    end = '.xlsx' # input files extension
 
     def __init__(self):
         self.projects = [file[len(Project.start):-len(Project.end)] \
@@ -22,6 +27,8 @@ class Project:
 
     # prompt user for project selection
     def ask_project(self):
+        '''
+        '''
         if len(self.projects):
             print('Available projects:')
 
@@ -46,7 +53,14 @@ class Project:
 
 # read in standard assumptions from SQL
 class SQLDB:
-    def __init__(self, structure_db):
+    '''
+    This class connects with a database containing structural
+    values common across all simulation runs. It has several
+    functions for specific use cases. It should only be used
+    by a minimal number of other classes to prevent too much
+    direct touching of the database.
+    '''
+    def __init__(self, structure_db: str):
         self.engine = create_engine('sqlite:///{}'.format(structure_db))
         self.connection = self.engine.connect()
 

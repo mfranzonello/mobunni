@@ -1,3 +1,5 @@
+# Bloom Service Cost Modeling 
+
 # main script to read inputs, set up structure, run simulation and print results
 
 from math import floor
@@ -12,24 +14,38 @@ from simulate import Scenario, Simulation
 from debugging import StopWatch, open_results
 
 # inputs
-structure_db = 'bpm.db'
+structure_db = 'bpm.db' # location of the structural database
 
 # ask for project
-def get_project():
-    project = Project()
-    project.ask_project()
-    excel_int = ExcelInt(project.path)
+def get_project() -> [Project, ExcelInt]:
+    '''
+    This function can be replaced with a web-based input UI.
+    It uses the command prompt to ask the user which Excel input file to read
+    and returns values for each scenario.
+    '''
+    project = Project() # class to get project with slight UI
+    project.ask_project() # get project
+    excel_int = ExcelInt(project.path) # pull values from Excel file for corresponding project
     return project, excel_int
 
 # read structure
-def get_structure(structure_db):
+def get_structure(structure_db: str) -> [SQLDB, Thresholds]:
+    '''
+    This function sets up a connection to the database for cost values,
+    power and efficiency curves, compatibility, etc, and special threshold
+    values.
+    '''
     print('Reading structure database')
     sql_db = SQLDB(structure_db)
     thresholds = Thresholds(sql_db.get_thresholds())
     return sql_db, thresholds
 
 # build details
-def get_details(excel_int):
+def get_details(excel_int: ExcelInt) -> Details:
+    '''
+    This function gets values for the refinement of the monte-carlo
+    simulations and the total number of scenarios to run.
+    '''
     print ('Getting project details')
     n_sites, n_years, n_runs = excel_int.get_details()
     n_scenarios = excel_int.count_scenarios()
@@ -38,11 +54,16 @@ def get_details(excel_int):
     return details
 
 # build scenario
-def get_scenario(excel_int, scenario_number, apc):
+def get_scenario(excel_int: ExcelInt, scenario_number: int, apc: APC):
+    '''
+    This function gets the specific values for each monte-carlo siulation
+    including contract details, site layout and technology roadmap.
+    It downloads from APC-TMO if required if there is a network connection.
+    '''
     print('Getting scenario {} details'.format(scenario_number+1))
     scenario_name, limits, start_date, contract_length, \
         non_replace, repair, junk_level, best, early_deploy, \
-        site_code, servers, roadmap = excel_int.get_scenario(scenario_number) ##target_size, start_month,
+        site_code, servers, roadmap = excel_int.get_scenario(scenario_number)
 
     existing_servers = ExistingServers(apc.get_site_performance(site_code))
     new_servers = NewServers(servers)
@@ -65,13 +86,35 @@ def get_scenario(excel_int, scenario_number, apc):
     return scenario
 
 # run simulation
-def run_simulation(details, scenario, sql_db, thresholds):
+def run_simulation(details: Details, scenario: Scenario, sql_db: SQLDB, thresholds: Thresholds) -> Simulation:
+    '''
+    This function runs a simulation of a specific scenario.
+    The results of the simulation are stored within the object.
+    '''
     simulation = Simulation(details, scenario, sql_db, thresholds)
     simulation.run_scenario()
     return simulation
 
+# run scenarios
+def run_scenarios(project: Project, excel_int: ExcelInt, details: Details, sql_db: SQLDB, thresholds: Thresholds, apc: APC):
+    '''
+    This function runs each scenario through the simulator and
+    stores the specific results.
+    '''
+    for scenario_number in range(details.n_scenarios):
+        scenario = get_scenario(excel_int, scenario_number, apc)
+        
+        # run simulation
+        simulation = run_simulation(details, scenario, sql_db, thresholds)
+        save_results(project, scenario, simulation)
+
 # output results
-def save_results(project, scenario, simulation):
+def save_results(project: Project, scenario: Scenario, simulation: Simulation):
+    '''
+    This function takes the stored values in a simulation and
+    packages them in an Excel format.
+    Some of this can be replaced with a web-based output UI.
+    '''
     inputs, site_performance, cost_tables, fru_power, fru_efficiency, transactions, cash_flow = simulation.get_results()
     
     # set up output
@@ -85,20 +128,17 @@ def save_results(project, scenario, simulation):
     excelerator.store_charts(charts)
     excelerator.to_excel(start=open_results)
 
-# run scenarios
-def run_scenarios(project, excel_int, details, sql_db, thresholds, apc):
-    for scenario_number in range(details.n_scenarios):
-        scenario = get_scenario(excel_int, scenario_number, apc)
-        
-        # run simulation
-        simulation = run_simulation(details, scenario, sql_db, thresholds)
-        save_results(project, scenario, simulation)
-
 # main code
-project, excel_int = get_project()
-sql_db, thresholds = get_structure(structure_db)
-details = get_details(excel_int)
-apc = APC()
+def run_model():
+    '''
+    This function excutes the functions above.
+    '''
+    project, excel_int = get_project()
+    sql_db, thresholds = get_structure(structure_db)
+    details = get_details(excel_int)
+    apc = APC()
 
-run_scenarios(project, excel_int, details, sql_db, thresholds, apc)
-StopWatch.show_results()
+    run_scenarios(project, excel_int, details, sql_db, thresholds, apc)
+    StopWatch.show_results()
+
+run_model()
