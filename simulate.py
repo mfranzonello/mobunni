@@ -217,7 +217,7 @@ class Simulation:
     def get_site_performance(self):
         performance = concat(self.site_performance)
         drops = ['site', 'year']
-        if self.scenario.windowed:
+        if not self.scenario.windowed:
             drops.extend(['WTMO', 'Weff'])
         performance_gb = performance.drop(drops, axis='columns').groupby(['date'])
 

@@ -298,8 +298,8 @@ class ExcelePaint:
     date_values = ['date']
     quant_values = ['created FRU']
 
-    ranges = {'C': '#2E86C1', 'W': '#E74C3C', 'P': '#28B463'}
-    ranges_lite = {'C': '#85C1E9', 'W': '#F1948A', 'P': '#82E0AA'}
+    ranges = {'C': '#2E86C1', 'W': '#FC03D3', 'P': '#28B463'}
+    ranges_lite = {'C': '#85C1E9', 'W': '#FF69E6', 'P': '#82E0AA'}
     
     ranges_2 = {'created FRU': '#C43F35', 'deployed FRU': '#FFBE0D', 'stored FRU': '#702CE6'}
 
