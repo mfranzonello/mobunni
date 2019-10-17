@@ -14,7 +14,7 @@ from simulate import Scenario, Simulation
 from debugging import StopWatch, open_results
 
 # inputs
-structure_db = 'bpm.db' # location of the structural database
+structure_db = 'sqlite' #'remotemysql' # remotemysql, mysql or sqlite
 
 # ask for project
 def get_project() -> [Project, ExcelInt]:
@@ -104,9 +104,10 @@ def run_scenarios(project: Project, excel_int: ExcelInt, details: Details, sql_d
     for scenario_number in range(details.n_scenarios):
         scenario = get_scenario(excel_int, scenario_number, apc)
         
-        # run simulation
-        simulation = run_simulation(details, scenario, sql_db, thresholds)
-        save_results(project, scenario, simulation)
+        if scenario.is_runnable():
+            # run simulation
+            simulation = run_simulation(details, scenario, sql_db, thresholds)
+            save_results(project, scenario, simulation)
 
 # output results
 def save_results(project: Project, scenario: Scenario, simulation: Simulation):

@@ -220,7 +220,6 @@ class Site:
             server = self.shop.create_server(self.number, server_number, server_model_class=server_model,
                                              nameplate_needed=nameplate_needed, n_enclosures=n_enclosures)
                 
-            #enclosure_number = 0
             for fru_number in existing_servers.get_enclosure_numbers(server_number):
                 # loop through power modules
                 enclosure_number = server.get_empty_enclosure()
@@ -232,11 +231,13 @@ class Site:
                 install_date = existing_servers[server_number, fru_number]['install date']
                 current_date = install_date + relativedelta(months=len(performance))
 
-                fru_model, fru_mark = self.shop.get_latest_model('module', server.model, install_date, match_server_model=True)
+                fru_model, fru_mark, fru_model_number =\
+                   self.shop.get_latest_model('module', server.model, install_date, match_server_model=True)
 
-                fru = self.shop.create_fru(fru_model, fru_mark, install_date, self.number, server_number, enclosure_number,
-                                            initial=True, current_date=current_date, fit=fru_fit,
-                                            reason='populating enclosure')
+                fru = self.shop.create_fru(fru_model, fru_mark, fru_model_number,
+                                           install_date, self.number, server_number, enclosure_number,
+                                           initial=True, current_date=current_date, fit=fru_fit,
+                                           reason='populating enclosure')
 
                 server.replace_fru(enclosure_number, fru)
                 
@@ -248,13 +249,14 @@ class Site:
         # no existing FRUs, start site from scratch
 
         for server_number in new_servers.get_server_numbers():
-            server_model = new_servers[server_number]['model']
-            server = self.shop.create_server(self.number, server_number, server_model_number=server_model)
+            server = self.shop.create_server(self.number, server_number, server_model_number=new_servers[server_number]['model_number'])
             
             for enclosure_number in new_servers.get_enclosure_numbers(server_number):
-                fru_model, fru_mark = self.shop.get_latest_model('module', server.model, self.get_date(), match_server_model=True)
+                fru_model, fru_mark, fru_model_number =\
+                   self.shop.get_latest_model('module', server.model, self.get_date(), match_server_model=True)
 
-                fru = self.shop.create_fru(fru_model, fru_mark, self.get_date(), self.number, server_number, enclosure_number,
+                fru = self.shop.create_fru(fru_model, fru_mark, fru_model_number,
+                                           self.get_date(), self.number, server_number, enclosure_number,
                                            initial=True, reason='populating enclosure')
 
                 server.replace_fru(enclosure_number, fru)

@@ -129,7 +129,7 @@ class EfficiencyCurves:
     def pick_curve(self, fit=None):
         if (fit is not None) and (('performance' in fit) and ('operating time' in fit)):
             # pulled from API
-                curve = Series(data=fit['performance']['pct'].to_list() + self.curve.loc[fit['operating time']:].to_list())
+            curve = Series(data=fit['performance']['pct'].to_list() + self.curve.loc[fit['operating time']:].to_list())
 
         else:
             curve = self.curve.copy()
@@ -143,23 +143,34 @@ class PowerModules:
         self.sql_db = sql_db
 
     # get power and efficiency curves
-    def get_curves(self, model, mark):
-        power_curves = PowerCurves(self.sql_db.get_power_curves(model, mark))
-        efficiency_curves = EfficiencyCurves(self.sql_db.get_efficiency_curve(model, mark))
+    def get_curves(self, model, mark, model_number):
+        power_curves = PowerCurves(self.sql_db.get_power_curves(model, mark, model_number))
+        efficiency_curves = EfficiencyCurves(self.sql_db.get_efficiency_curve(model, mark, model_number))
         return power_curves, efficiency_curves
 
     # find best new power module available
     def get_model(self, install_date, wait_period=None, power_needed=0, max_power=None, energy_needed=0, time_needed=0, best=False,
                   server_model=None, roadmap=None, match_server_model=False):
 
-        buildable_modules = self.sql_db.get_buildable_modules(install_date, server_model=server_model, allowed=roadmap, wait_period=wait_period)
+        if roadmap is None:
+            allowed = self.sql_db.get_default_modules()
+        else:
+            allowed = roadmap
+
+        buildable_modules = self.sql_db.get_buildable_modules(install_date, server_model=server_model, allowed=allowed, wait_period=wait_period)
+        
         if match_server_model and (server_model is not None):
             buildable_modules = buildable_modules[buildable_modules['model']==server_model]
+
+            if not len(buildable_modules):
+                print('{} not available on {}, using earliest possible module'.format(server_model, install_date))
+                buildable_modules = self.sql_db.get_buildable_modules(install_date=0, server_model=server_model, allowed=allowed)
+                buildable_modules = buildable_modules[buildable_modules['model']==server_model]
         
         if not buildable_modules.empty:
-            buildable_modules.loc[:, 'rating'] = buildable_modules.apply(lambda x: self.get_rating(x['model'], x['mark']), axis='columns')
+            buildable_modules.loc[:, 'rating'] = buildable_modules.apply(lambda x: self.get_rating(x['model'], x['mark'], x['model_number']), axis='columns')
 
-            buildable_modules.loc[:, 'energy'] = buildable_modules.apply(lambda x: self.get_energy(x['model'], x['mark'], time_needed), axis='columns')
+            buildable_modules.loc[:, 'energy'] = buildable_modules.apply(lambda x: self.get_energy(x['model'], x['mark'], x['model_number'], time_needed), axis='columns')
 
             # check power requirements
             max_rating = buildable_modules['rating'].max()
@@ -173,9 +184,8 @@ class PowerModules:
             if max_power is not None:
                 filtered_power_modules = filtered_power_modules[filtered_power_modules['rating'] <= max_power]
 
-
             # check energy requirements
-            max_energy = buildable_modules['energy'].max()
+            max_energy = filtered_power_modules['energy'].max()
             if (max_energy >= energy_needed) and (not best):
                 # if there is a model big enough to handle the load, choose it
                 filtered_modules = filtered_power_modules[filtered_power_modules['energy'] >= energy_needed]
@@ -188,17 +198,13 @@ class PowerModules:
                 module = filtered_modules.iloc[0, :]
                 model = module['model']
                 mark = module['mark']
+                model_number = module['model_number']
         
-                return model, mark
-
-    # get base of power module model
-    def get_module_base(self, model, mark):
-        base = self.sql_db.get_module_base(model, mark)
-        return base
+                return model, mark, model_number
 
     # return initial power rating of a given module
-    def get_rating(self, model, mark):
-        rating = self.sql_db.get_module_rating(model, mark)
+    def get_rating(self, model, mark, model_number):
+        rating = self.sql_db.get_module_rating(model, mark, model_number)
         return rating
 
     # return initial power rating of all marks of a module
@@ -208,16 +214,16 @@ class PowerModules:
         return ratings
 
     # return expected energy output of a given model
-    def get_energy(self, model, mark, time_needed):
-        curves = PowerCurves(self.sql_db.get_power_curves(model, mark))
+    def get_energy(self, model, mark, model_number, time_needed):
+        curves = PowerCurves(self.sql_db.get_power_curves(model, mark, model_number))
 
         energy = curves.get_expected_energy(time_needed=time_needed)
         return energy
 
-    # return expected energy output of all marks of a module
-    def get_energies(self, model, install_date, time_needed):
-        marks = self.get_marks(model, install_date)
-        energies = [self.get_energy(model, mark, time_needed) for mark in marks]
+    # return expected energy output of all model versions of a module
+    def get_energies(self, model, mark, install_date, time_needed):
+        model_numbers = self.sql_db.get_module_model_numbers(model, mark)
+        energies = [self.get_energy(model, mark, model_number, time_needed) for model_number in model_numbers]
         return energies
 
 # details of energy enclosures

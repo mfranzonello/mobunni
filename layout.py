@@ -6,10 +6,14 @@ from urllib.request import urlopen
 from urllib.error import URLError
 from pandas import read_json, isna, concat, DataFrame, to_datetime
 
+from urls import URL
+
 # connect to internal Bloom API for site, server and power module performance of fleet
 class APC:
-    url = 'https://tmo-portal.ionamerica.priv'
-    endpoint = '{}:4433'.format(url) # API location
+    url, endpoint = URL.get_apc()
+
+    server_types = {'Sedona': 'Catalina',
+                    'Eldora': 'Catalina'} ## FIGURE OUT HOW TO ADD THIS TO DATABASE
 
     # check if there is an internet connection
     def check_internet():
@@ -46,8 +50,15 @@ class APC:
 
             for server_code in self.servers[self.servers['site']==site_code]['id']:
                 server_number = server_code.replace(site_code, '')
-                site_performance[server_number] = {'nameplate': self.servers[self.servers['id']==server_code]['nameplateKw'].squeeze(),
-                                                   'model': self.servers[self.servers['id']==server_code]['type'].squeeze().title(),
+                server_nameplate = self.servers[self.servers['id']==server_code]['nameplateKw'].squeeze()
+                server_model = self.servers[self.servers['id']==server_code]['type'].squeeze().title()
+                if server_model in APC.server_types:
+                    server_rename = APC.server_types[server_model]
+                    print('Renaming {} to {}'.format(server_model, server_rename))
+                    server_model = server_rename
+
+                site_performance[server_number] = {'nameplate': server_nameplate,
+                                                   'model': server_model,
                                                    'frus': {}}
             
                 for fru_code in self.servers[self.servers['id']==server_code]['powerModules'].iloc[0]:

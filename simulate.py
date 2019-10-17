@@ -13,6 +13,11 @@ from debugging import StopWatch
 
 # details specific to scenario
 class Scenario:
+    '''
+    This class contains the specific details of each scenario,
+    made up of contract commitments, server layout, technology roadmaps,
+    and tweaks (e.g., allowing deploys or repairs or early deploys).
+    '''
     def __init__(self, number, name, commitments, technology, tweaks):
         self.number = number
         self.name = name
@@ -22,6 +27,10 @@ class Scenario:
         self.tweaks = tweaks
 
         self.windowed = (self.commitments.limits['WTMO'] or self.commitments.limits['Weff']) and self.commitments.limits['window']
+
+    def is_runnable(self):
+        runnable = self.technology.has_servers()
+        return runnable
 
     # save specifice inputs from a scenario
     def get_inputs(self, *args):
@@ -38,6 +47,14 @@ class Scenario:
 
 # sites installed over phases and run for full contracts
 class Simulation:
+    '''
+    This class runs the details found in the scenario object
+    and connects with the SQL database. It runs a specified
+    number of monte carlo simulations, and can either run
+    a single site or simulate fleet operations. The results
+    of the individual runs are store and averaged, with more
+    details of the last run saved for auditing.
+    '''
     def __init__(self, details, scenario, sql_db, thresholds):
         self.fru_performance = []
         self.site_performance = []
@@ -66,8 +83,8 @@ class Simulation:
         fleet = Fleet(self.scenario.commitments.target_size, self.details.n_sites, self.details.n_years,
                       system_sizes, system_dates, self.scenario.commitments.start_date, min_date)
 
-        shop = Shop(self.sql_db, self.thresholds, self.scenario.commitments.start_date, tweaks=self.tweaks,
-                    roadmap=self.scenario.technology.roadmap)
+        shop = Shop(self.sql_db, self.thresholds, self.scenario.commitments.start_date,
+                    self.tweaks, self.scenario.technology)
         fleet.add_shop(shop)
 
         # adjust start date to account for sites being installed before the target site
@@ -152,44 +169,49 @@ class Simulation:
     # run simulations for a scenario
     def run_scenario(self):
         print('SCENARIO {}'.format(self.scenario.number+1))
-        for run_n in range(self.details.n_runs):
-            print('Simulation {}'.format(run_n+1))
 
-            # create fleet related objects
-            fleet, shop = self.set_up_fleet()
+        if not self.scenario.is_runnable():
+            print('Site is empty, cannot run scenario!')
 
-            # run through all contracts
-            for month in range(self.scenario.commitments.length*12 + fleet.target_month + 1):
+        else:
+            for run_n in range(self.details.n_runs):
+                print('Simulation {}'.format(run_n+1))
 
-                # install site at sampled months
-                for site_n in range(fleet.get_install_count(month)):
-                    site = self.set_up_site(fleet, month)
+                # create fleet related objects
+                fleet, shop = self.set_up_fleet()
 
-                    fleet.add_site(site)
+                # run through all contracts
+                for month in range(self.scenario.commitments.length*12 + fleet.target_month + 1):
+
+                    # install site at sampled months
+                    for site_n in range(fleet.get_install_count(month)):
+                        site = self.set_up_site(fleet, month)
+
+                        fleet.add_site(site)
 
                         
-                for site in fleet.sites:
-                    # check site status and move FRUs as required
-                    decommissioned = self.inspect_site(fleet, site)
+                    for site in fleet.sites:
+                        # check site status and move FRUs as required
+                        decommissioned = self.inspect_site(fleet, site)
 
-                    if decommissioned:
-                        fleet.remove_site(site)
+                        if decommissioned:
+                            fleet.remove_site(site)
                    
-                # make units in shop deployable.phases
-                fleet.shop.advance()
+                    # make units in shop deployable.phases
+                    fleet.shop.advance()
 
-            # get value of remaining FRUs
-            fleet.shop.salvage_frus()
+                # get value of remaining FRUs
+                fleet.shop.salvage_frus()
 
-            # store results
-            self.append_summaries(fleet)
+                # store results
+                self.append_summaries(fleet)
             
-            # print simulation update
-            cost_tables = self.get_costs(last=True)
-            print('Cost $')
-            print(cost_tables['dollars'])
-            print('Cost #')
-            print(cost_tables['quants'])
+                # print simulation update
+                cost_tables = self.get_costs(last=True)
+                print('Cost $')
+                print(cost_tables['dollars'])
+                print('Cost #')
+                print(cost_tables['quants'])
 
     # average the run performance
     def get_site_performance(self):

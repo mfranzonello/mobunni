@@ -71,9 +71,13 @@ class Technology(Group):
         if self.has_existing_servers():
             model_string = 'existing'
             models = self.existing_servers.get_models()
+
         elif self.has_new_servers():
             model_string = 'new'
             models = self.new_servers.get_models()
+
+        else:
+            model_string = []
 
         self.data = [['site code', self.site_name],
                      ['{} server models'.format(model_string), ' / '.join(models)]]
@@ -87,6 +91,22 @@ class Technology(Group):
     def has_new_servers(self):
         existing = self.new_servers.exist()
         return existing
+
+    # check if there are any servers
+    def has_servers(self):
+        existing = self.has_existing_servers() or self.has_new_servers()
+        return existing
+
+    # check for default roadmap if none given
+    def get_roadmap(self, sql_db=None):
+        if self.roadmap is not None:
+            roadmap = self.roadmap
+        elif sql_db is not None:
+            roadmap = sql_db.get_default_modules()
+        else:
+            roadmap = None
+
+        return roadmap
 
 # collection of modeling tweaks
 class Tweaks(Group):

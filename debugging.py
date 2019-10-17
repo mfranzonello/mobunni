@@ -1,6 +1,4 @@
 from time import process_time
-import sys
-from subprocess import Popen, PIPE, CREATE_NEW_CONSOLE
 
 open_results = True
 

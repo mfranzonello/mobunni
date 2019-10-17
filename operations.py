@@ -105,31 +105,29 @@ class Templates:
     def ghost_server(self, model):
         pass
 
-    def find_module(self, model, mark):
-        if (model, mark) in self.modules:
-            module = self.modules[(model, mark)]
+    def find_module(self, model, mark, model_number):
+        if (model, mark, model_number) in self.modules:
+            module = self.modules[(model, mark, model_number)]
         else:
-            module = self.ghost_module(model, mark)
+            module = self.ghost_module(model, mark, model_number)
         return module
 
-    def ghost_module(self, model, mark):
+    def ghost_module(self, model, mark, model_number):
         serial = None # blank serial
         install_date = None # blank date
 
-        power_curves, efficiency_curves = self.power_modules.get_curves(model, mark)
+        power_curves, efficiency_curves = self.power_modules.get_curves(model, mark, model_number)
 
-        base = self.power_modules.get_module_base(model, mark)
-        fru = FRU(serial, model, base, mark, power_curves, efficiency_curves, install_date, current_date=install_date)
+        fru = FRU(serial, model, mark, model_number, power_curves, efficiency_curves, install_date, current_date=install_date)
 
         # add FRU template
-        self.modules[(model, mark)] = fru
+        self.modules[(model, mark, model_number)] = fru
 
         return fru
 
 # warehouse to store, repair and deploy old FRUs and create new FRUs
 class Shop:
-    def __init__(self, sql_db, thresholds, install_date, tweaks,
-                 roadmap=None):
+    def __init__(self, sql_db, thresholds, install_date, tweaks, technology):
         self.power_modules = PowerModules(sql_db)
         self.hot_boxes = HotBoxes(sql_db)
         self.energy_servers = EnergyServers(sql_db)
@@ -152,7 +150,7 @@ class Shop:
 
         self.date = install_date
 
-        self.roadmap = roadmap
+        self.roadmap = technology.get_roadmap()
 
         self.next_serial = {'ES': 0, 'PWM': 0, 'ENC': 0}
 
@@ -174,11 +172,14 @@ class Shop:
         return cost
 
     # copy a FRU from a template
-    def create_fru(self, model, mark, install_date, site_number, server_number, enclosure_number, initial=False, current_date=None, fit=None, reason=None):
+    def create_fru(self, model, mark, model_number, install_date, site_number, server_number, enclosure_number,
+                   initial=False, current_date=None, fit=None, reason=None):
         serial = self.get_serial('PWM')
         
         # check if template already created to reduce calls to DB
-        fru = self.templates.find_module(model, mark).copy(serial, install_date, current_date=current_date if current_date is not None else install_date, fit=fit)
+        fru = self.templates.find_module(model, mark, model_number).copy(serial, install_date,
+                                                                         current_date=current_date if current_date is not None else install_date,
+                                                                         fit=fit)
 
         # get costs
         if initial:
@@ -246,15 +247,15 @@ class Shop:
 
     # overhaul a FRU to make it refurbished and bespoke
     ## NOT IMPLEMENTED
-    def overhaul_fru(self, queue, mark, site_number, server_number, enclosure_number, reason=None):
-        fru = self.junk.pop(queue)
-        power_curves, efficiency_curve = self.power_modules.get_curves(fru.model, mark)
+    ##def overhaul_fru(self, queue, mark, site_number, server_number, enclosure_number, reason=None):
+    ##    fru = self.junk.pop(queue)
+    ##    power_curves, efficiency_curve = self.power_modules.get_curves(fru.model, mark)
 
-        fru.overhaul(mark, power_curves, efficiency_curve)
-        cost = self.get_cost('overhaul fru')
-        self.transact(fru.serial, fru.model, fru.mark, fru.get_power(), fru.get_efficiency(),
-                        'overhauled FRU', 'to', site_number, server_number, enclosure_number, cost, reason=reason)
-        return fru
+    ##    fru.overhaul(mark, power_curves, efficiency_curve)
+    ##    cost = self.get_cost('overhaul fru')
+    ##    self.transact(fru.serial, fru.model, fru.mark, fru.get_power(), fru.get_efficiency(),
+    ##                    'overhauled FRU', 'to', site_number, server_number, enclosure_number, cost, reason=reason)
+    ##    return fru
 
     # find FRU in deployable or junk that best fits requirements
     def find_fru(self, allowed_models, power_needed=0, energy_needed=0, time_needed=0, max_power=None, junked=False):
@@ -289,7 +290,7 @@ class Shop:
     # get energy value of each fru in storage
     def list_energies(self, allowed_models, time_needed, junked=False):
         if junked:
-            energies_list = self.flatten_list([self.power_modules.get_energiesf(fru.model, self.date, time_needed) \
+            energies_list = self.flatten_list([self.power_modules.get_energies(fru.model, self.date, time_needed) \
                 if fru.model in allowed_models.to_list() else [0] for fru in self.junk])
         else:
             energies_list = [fru.get_energy(months=time_needed) if fru.model in allowed_models.to_list() else 0 \
@@ -317,11 +318,11 @@ class Shop:
         elif category == 'module':
             module = self.power_modules.get_model(install_date, best=True, server_model=base_model, roadmap=self.roadmap, **kwargs)
             if module is not None:
-                model, mark = module
+                model, mark, model_number = module
             else:
-                model, mark = [None]*2
+                model, mark, model_number = [None]*3
 
-            return model, mark
+            return model, mark, model_number
 
         elif category == 'enclosure':
             model = self.hot_boxes.get_model_number(base_model, **kwargs)
@@ -381,8 +382,9 @@ class Shop:
 
             if module is not None:
                 # can create a FRU accoring to requirements
-                model, mark = module
-                fru = self.create_fru(model, mark, install_date, site_number, server_number, enclosure_number, initial, reason=reason)
+                model, mark, model_number = module
+                fru = self.create_fru(model, mark, model_number, install_date, site_number, server_number, enclosure_number,
+                                      initial=initial, reason=reason)
 
             else:
                 # cannot create a FRU according to requirements

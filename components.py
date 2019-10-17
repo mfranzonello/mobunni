@@ -7,14 +7,14 @@ from debugging import StopWatch
 
 # power module (field replaceable unit)
 class FRU:
-    def __init__(self, serial, model, base, mark, power_curves, efficiency_curves, install_date, current_date,
+    def __init__(self, serial, model, mark, model_number, power_curves, efficiency_curves, install_date, current_date,
                  fit=None):
         # FRU defined by sampled power curve at given installation year
         # FRUs are typically assumed to be new and starting at time 0, otherwise they follow the best fit power curve
         self.serial = serial
         self.model = model
-        self.base = base
         self.mark = mark
+        self.model_number = model_number ## MODEL NUMBER
 
         self.install_date = install_date
         self.month = 0
@@ -85,7 +85,6 @@ class FRU:
     # get efficiency of FRU
     def get_efficiency(self, lookahead=None):
         month = self.get_month(lookahead=lookahead)
-
         efficiency = self.efficiency_curve[min(month, len(self.efficiency_curve)-1)]
         return efficiency
 
@@ -102,17 +101,32 @@ class FRU:
         return dead
 
     # determine if the power module has degraded already
-    def is_degraded(self, threshold=0):
+    def is_degraded(self, threshold:int=0) -> bool:
+        '''
+        If a power module is outputting less power than its initial rating
+        then it is degraded and can be replaced. Default threshold
+        is zero kW below initial rating.
+        '''
         degraded = self.get_power() < self.rating - threshold
         return degraded
 
     # determine if the power module is inefficient already
-    def is_inefficient(self, threshold=0):     
+    def is_inefficient(self, threshold:int=0) -> bool:     
+        '''
+        If a power module is operating at a lower efficiencing than initially
+        then it is inefficient and can be replaced. Default threshold
+        is zero percent below initial rating.
+        '''
         inefficient = self.get_efficiency() < self.max_efficiency - threshold
         return inefficient
 
     # determine if a FRU needs to be repaired
-    def is_deviated(self, threshold=0):
+    def is_deviated(self, threshold:int=0) -> bool:
+        '''
+        If a power module is outputting power too far below what the
+        ideal curve would be outputting, then it is deviated and can
+        be replaced. Default threshold is zero percent below ideal.
+        '''
         if self.is_dead() or (self.get_power() == 0):
             # FRU is at end of life and unrepairable
             deviated = False
@@ -128,19 +142,29 @@ class FRU:
 
     # bring power curve to median
     def repair(self):
+        '''
+        If a power module is not fully dead, then it can
+        be repaired to some curve between the median and the
+        ideal. A dead module can only be overhauled.
+        '''
         if not self.is_dead():
             self.power_curve = self.power_curves.pick_curve(allowed=[0.5, 0.9])
         return
 
     # shift power and efficiency curves forward during storage
     def store(self, months):
+        '''
+        When a power module is stored for future redeploys,
+        it moves forward on its power and efficiency curves
+        due to storage loss.
+        '''
         self.month += months
         return
 
     # replace stacks and choose new power curves for bespoke options
-    def overhaul(self, mark, power_curves, efficiency_curves):
-        # give new bespoke mark
-        self.mark = mark
+    def overhaul(self, model_number, power_curves, efficiency_curves):
+        # give new bespoke model number
+        self.model_number = model_number
         # set new power and efficiency curves
         self.set_curves(power_curves, efficiency_curve)
         # reset month
@@ -148,7 +172,7 @@ class FRU:
 
     # create a copy of the base FRU
     def copy(self, serial, install_date, current_date, fit=None):
-        fru = FRU(serial, self.model, self.base, self.mark, self.power_curves, self.efficiency_curves, install_date, current_date, fit=fit)
+        fru = FRU(serial, self.model, self.mark, self.model_number, self.power_curves, self.efficiency_curves, install_date, current_date, fit=fit)
         return fru
         
 # cabinet in energy server that can house a FRU
