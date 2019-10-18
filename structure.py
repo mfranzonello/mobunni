@@ -95,8 +95,21 @@ class SQLDB:
 
         return server_model
 
+    # find the alternative name of an internal server name
+    def get_alternative_server_model(self, server_model:str) -> str:
+        sql = 'SELECT server FROM Compatibility WHERE server = module'
+        names = read_sql(sql, self.connection)
+        if server_model in names:
+            # server is correct name
+            alternative = server_model
+        else:
+            # server is alternative name
+            sql = 'SELECT module FROM Compatibility WHERE server = module LIMIT 1'
+            alternative = read_sql(sql, self.connection).squeeze()
+        return alternative
+
     # select power modules compatible with server model
-    def get_compatible_modules(self, server_model):
+    def get_compatible_modules(self, server_model: str) -> list:
         sql = 'SELECT module FROM Compatibility WHERE server = "{}"'.format(server_model)
         allowed_modules = read_sql(sql, self.connection).squeeze()
         return allowed_modules

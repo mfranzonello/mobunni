@@ -12,8 +12,8 @@ from urls import URL
 class APC:
     url, endpoint = URL.get_apc()
 
-    server_types = {'Sedona': 'Catalina',
-                    'Eldora': 'Catalina'} ## FIGURE OUT HOW TO ADD THIS TO DATABASE
+    ##server_types = {'Sedona': 'Catalina',
+    ##                'Eldora': 'Catalina'} ## FIGURE OUT HOW TO ADD THIS TO DATABASE
 
     # check if there is an internet connection
     def check_internet():
@@ -48,20 +48,20 @@ class APC:
         site_performance = {}
         if self.connected and (site_code is not None):
 
-            for server_code in self.servers[self.servers['site']==site_code]['id']:
+            for server_code in self.servers.query('site == @site_code')['id']:
                 server_number = server_code.replace(site_code, '')
-                server_nameplate = self.servers[self.servers['id']==server_code]['nameplateKw'].squeeze()
-                server_model = self.servers[self.servers['id']==server_code]['type'].squeeze().title()
-                if server_model in APC.server_types:
-                    server_rename = APC.server_types[server_model]
-                    print('Renaming {} to {}'.format(server_model, server_rename))
-                    server_model = server_rename
+                server_nameplate = self.servers.query('id == @server_code')['nameplateKw'].squeeze()
+                server_model = self.servers.query('id == @server_code')['type'].squeeze().title()
+                ##if server_model in APC.server_types:
+                ##    server_rename = APC.server_types[server_model]
+                ##    print('Renaming {} to {}'.format(server_model, server_rename))
+                ##    server_model = server_rename
 
                 site_performance[server_number] = {'nameplate': server_nameplate,
                                                    'model': server_model,
                                                    'frus': {}}
             
-                for fru_code in self.servers[self.servers['id']==server_code]['powerModules'].iloc[0]:
+                for fru_code in self.servers.query('id == @server_code')['powerModules'].iloc[0]:
                     fru_number = fru_code.replace(server_code, '')
                     
                     print(' | {}{}'.format(server_number, fru_number), end='', flush=True)
@@ -105,8 +105,10 @@ class APC:
         fru_performance = concat(fru_values.values(), axis=1).resample('M').mean()
 
         # get start date based on increase in TMO from a FRU replacement
-        fru_reset_date = fru_performance[fru_performance[~fru_performance['kw'].isna()].diff() > tmo_threshold].idxmax()['kw']
-        fru_install_date = fru_reset_date if not isna(fru_reset_date) else fru_performance.index.min()
+        fru_reset = fru_performance.query('~kw.isna()').query('kw.diff() > @tmo_threshold')
+        fru_install_date = fru_performance.index.min() if fru_reset.empty else fru_reset.index.max()
+        #fru_reset_date = fru_performance.query('~kw.isna()').query('kw.diff() > @tmo_threshold').idxmax()['kw']
+        #fru_install_date = fru_reset_date if not isna(fru_reset_date) else fru_performance.index.min()
         fru_current_date = fru_performance.index.max()
         fru_operating_time = relativedelta(fru_performance.index[-1], fru_install_date)
 

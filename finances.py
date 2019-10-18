@@ -63,8 +63,8 @@ class Cash:
         for sub_col in cost_columns['non-fru costs']:
             escalation = DataFrame(columns=['year', 'start value', 'escalator'], index=cash_flow.index)
 
-            escalation.loc[:, ['start value', 'escalator']] = cash_flow['year'].apply(lambda x: \
-                self.get_escalator(sub_col, date(x, 1, 1))).fillna(method = 'ffill').to_list()
+            escalation.loc[:, ['start value', 'escalator']] = \
+                cash_flow['year'].apply(lambda x: self.get_escalator(sub_col, date(x, 1, 1))).fillna(method = 'ffill').to_list()
 
             cash_flow.loc[:, sub_col] = escalation['start value'].mul(escalation['escalator'].fillna(0).add(1).cumprod()).div(size/1000)
 

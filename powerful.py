@@ -5,10 +5,14 @@ from numpy import random as nprandom
 
 from debugging import StopWatch
 
-# power curves for a model type
-class PowerCurves:
+class Curves:
     def __init__(self, curves):
         self.curves = curves
+
+# power curves for a model type
+class PowerCurves(Curves):
+    def __init__(self, curves):
+        Curves.__init__(self, curves)
         self.percentiles = curves.columns.to_list()
         
         self.ideal = max(self.percentiles)
@@ -122,25 +126,33 @@ class PowerCurves:
         return energy
 
 # efficiency curves for a model type
-class EfficiencyCurves:
-    def __init__(self, curve):
-        self.curve = curve
+class EfficiencyCurves(Curves):
+    def __init__(self, curves):
+        self.curves = curves
 
     def pick_curve(self, fit=None):
         if (fit is not None) and (('performance' in fit) and ('operating time' in fit)):
             # pulled from API
-            curve = Series(data=fit['performance']['pct'].to_list() + self.curve.loc[fit['operating time']:].to_list())
+            curve = Series(data=fit['performance']['pct'].to_list() + self.curves.loc[fit['operating time']:].to_list())
 
         else:
-            curve = self.curve.copy()
+            curve = self.curves.copy()
 
         return curve
 
-
-# details of power modules
-class PowerModules:
+class DataSheets:
     def __init__(self, sql_db):
         self.sql_db = sql_db
+
+    # get alternative name for special servers
+    def get_alternative_model(self, server_model):
+        alternative_name = self.sql_db.get_alternative_server_model(server_model)
+        return alternative_name
+
+# details of power modules
+class PowerModules(DataSheets):
+    def __init__(self, sql_db):
+        DataSheets.__init__(self, sql_db)
 
     # get power and efficiency curves
     def get_curves(self, model, mark, model_number):
@@ -160,19 +172,19 @@ class PowerModules:
         buildable_modules = self.sql_db.get_buildable_modules(install_date, server_model=server_model, allowed=allowed, wait_period=wait_period)
         
         if match_server_model and (server_model is not None):
+            server_model = self.get_alternative_model('server_model') # make sure to use compatible server name
             buildable_modules.query('model == @server_model', inplace=True)
 
-            if not len(buildable_modules):
+            if buildable_modules.empty:
                 print('{} not available on {}, using earliest possible module'.format(server_model, install_date))
                 buildable_modules = self.sql_db.get_buildable_modules(install_date=0, server_model=server_model, allowed=allowed)
                 buildable_modules.query('model == @server_model', inplace=True)
         
         if not buildable_modules.empty:
-            buildable_modules.loc[:, 'rating'] = buildable_modules.apply(lambda x: self.get_rating(x['model'], x['mark'], x['model_number']),
-                                                                         axis='columns')
-
-            buildable_modules.loc[:, 'energy'] = buildable_modules.apply(lambda x: self.get_energy(x['model'], x['mark'], x['model_number'], time_needed),
-                                                                         axis='columns')
+            buildable_modules['rating'], buildable_modules['energy'] = [None]*2
+            buildable_modules.loc[:, ['rating', 'energy']] = buildable_modules.apply(lambda x: (self.get_rating(x['model'], x['mark'], x['model_number']),
+                                                                                                self.get_energy(x['model'], x['mark'], x['model_number'], time_needed)),
+                                                                                     axis='columns', result_type='expand').values
 
             # check power requirements
             max_rating = buildable_modules['rating'].max()
@@ -227,18 +239,18 @@ class PowerModules:
         return energies
 
 # details of energy enclosures
-class HotBoxes:
+class HotBoxes(DataSheets):
     def __init__(self, sql_db):
-        self.sql_db = sql_db
+        DataSheets.__init__(self, sql_db)
 
     def get_model_number(self, server_model):
         model_number, rating = self.sql_db.get_enclosure_model_number(server_model)
         return model_number, rating
 
 # details of energy servers
-class EnergyServers:
+class EnergyServers(DataSheets):
     def __init__(self, sql_db):
-        self.sql_db = sql_db
+        DataSheets.__init__(self, sql_db)
 
     # get power modules that work with energy server
     def get_compatible_modules(self, server_model):
@@ -247,6 +259,8 @@ class EnergyServers:
 
     # get base model of a server model number
     def get_server_model(self, **kwargs):
+        if kwargs.get('server_model_class') is not None:
+            kwargs['server_model_class'] = self.get_alternative_model(kwargs['server_model_class'])
         server_model = self.sql_db.get_server_model(**kwargs)
         return server_model
 
