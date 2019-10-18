@@ -73,6 +73,7 @@ def get_scenario(excel_int: ExcelInt, scenario_number: int, apc: APC):
     elif new_servers.exist():
         target_size = new_servers.get_size()
         start_month = 0
+        print(new_servers)
 
     commitments = Commitments(length=contract_length, target_size=target_size, start_date=start_date,
                               start_month=start_month, non_replace=non_replace, limits=limits)

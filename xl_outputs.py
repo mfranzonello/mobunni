@@ -174,8 +174,6 @@ class Excelerator:
             format_style = None
 
         for column in columns:
-            #xl_column = self.get_excel_column(column)
-            #xl_range = '{}:{}'.format(xl_column, xl_column)
             worksheet.set_column(column, column, width, format_style if not rows else None)
             #if rows:
             #    df = self.dataframes[sheetname]
@@ -187,78 +185,28 @@ class Excelerator:
      
     # add a chart to the output
     def add_chart(self, writer, chart, secondary_chart=None):
-        sheetname = chart['sheetname']
-        columns = chart['columns']
-        rows = chart['rows']
+        chart_sheet_name = chart.get('chart sheet name', chart['sheetname'])
         offset = chart.get('offset')
-        chart_sheet_name = chart.get('chart sheet name')
-        axes = {xy: chart.get('{}-axis'.format(xy)) for xy in ['y', 'y2', 'x', 'x2']}
-        constants = chart.get('constants')
-        chart_type = chart.get('type', 'line')
-        header_row = chart.get('header_row', 0)
-        category_column = chart.get('category column', 0)
-        
+
         if not (offset or chart_sheet_name):
             offset = [1, 1]
+       
         workbook = writer.book
-        worksheet = writer.sheets[sheetname]
-        added_chart = workbook.add_chart({'type': chart_type})
+        worksheet = writer.sheets[chart_sheet_name]
 
-        # add line chart
-        if chart_type in ['line', 'scatter']:
-            for column in columns:
-                added_chart.add_series({'name': [sheetname, header_row, column],
-                                        'categories': [sheetname, header_row + 1, category_column, header_row + rows, category_column],
-                                        'values': [sheetname, header_row + 1, column, header_row + rows, column],
-                                        'border': {'color': columns[column]['color'], 'dash_type': columns[column]['dash'], 'width': columns[column]['weight']}
-                                        })
+        # create primary chart
+        added_chart = self.create_chart(workbook, chart)
 
-            if constants:
-                for constant in constants:
-                    if constant['value']:
-                        values = '={' + ','.join([str(constant['value'])] * (rows - header_row)) + '}'
-                        added_chart.add_series({'name': constant['name'],
-                                                'categories': [sheetname, header_row + 1, category_column, header_row + rows, category_column],
-                                                'values': values,
-                                                'border': {'color': constant['color'], 'dash_type': constant['dash']}})
+        # create constant line chart and combine
+        if chart.get('constants') is not None:
+            added_chart_1 = self.create_chart(workbook, chart, constant_lines=True)
+            added_chart.combine(added_chart_1)
 
-        # add second bar chart
+        # create secondary chart and combine
         if secondary_chart is not None:
-            sheetname_2 = secondary_chart['sheetname']
-            chart_type_2 = secondary_chart.get('type', 'column')
-            chart_subtype_2 = secondary_chart.get('subtype')
-
-            added_chart_2 = workbook.add_chart({'type': chart_type_2, 'subtype': chart_subtype_2})
-            if chart_type_2 in ['column']:
-                columns_2 = secondary_chart['columns']
-                rows_2 = secondary_chart['rows']
-                header_row_2 = secondary_chart.get('header row', 0)
-                category_column_2 = secondary_chart.get('category column', 0)
-
-                for column_2 in columns_2:
-                    added_chart_2.add_series({'name': [sheetname_2, header_row_2, column_2],
-                                              'categories': [sheetname_2, header_row_2 + 1, category_column_2, header_row_2 + rows_2, category_column_2],
-                                              'values': [sheetname_2, header_row_2 + 1, column_2, header_row_2 + rows_2, column_2],
-                                              'fill': {'color': columns_2[column_2]['color']},
-                                              'overlap': 100 if chart_subtype_2 == 'stacked' else 0,
-                                              'y2_axis': axes['y2'] is not None,
-                                              'x2_axis': axes['x2'] is not None})
-            
-                # set secondary axes
-                if axes['y2']:
-                    added_chart_2.set_y2_axis(axes['y2'])
-                if axes['x2']:
-                    added_chart_2.set_x2_axis(axes['x2'])
-
-                # combine charts
-                added_chart.combine(added_chart_2)
+            added_chart_2 = self.create_chart(workbook, chart, secondary=True)
+            added_chart.combine(added_chart_2)
                
-        # set primary axes
-        if axes['y']:
-            added_chart.set_y_axis(axes['y'])
-        if axes['x']:
-            added_chart.set_x_axis(axes['x'])
-
         # paste chart
         if offset:
             # paste on same sheet as data
@@ -268,6 +216,66 @@ class Excelerator:
             # paste on different sheet than data
             chartsheet = workbook.add_chartsheet(chart_sheet_name)
             chartsheet.set_chart(added_chart)
+
+    # create chart object
+    def create_chart(self, workbook, chart, constant_lines=False, secondary=False):
+        sheetname = chart['sheetname']
+        columns = chart['columns'] if not constant_lines else chart['constants']
+        rows = chart['rows']
+        axes = {xy: chart.get('{}-axis'.format(xy)) for xy in ['y', 'y2', 'x', 'x2']}
+        
+        chart_type = chart.get('type', 'line')
+        chart_subtype = chart.get('subtype')
+        header_row = chart.get('header_row', 0)
+        category_column = chart.get('category column', 0)
+
+        added_chart = workbook.add_chart({'type': chart_type})
+
+        categories = [sheetname, header_row + 1, category_column, header_row + rows, category_column]
+
+        for column in columns:
+            if constant_lines:
+                values = '={' + ','.join([str(column['value'])] * (rows - header_row)) + '}'
+            else:
+                values = [sheetname, header_row + 1, column, header_row + rows, column]
+
+            series_parameters = {'name': [sheetname, header_row, column],
+                                 'categories': catergories,
+                                 'values': values,
+                                 }                            
+
+            if constant_lines:
+                # add constant value line
+                series_parameters.update({'border': {'color': column['color'], 'dash_type': column['dash']},
+                                          })
+            elif chart_type in ['line', 'scatter']:
+                # add line chart
+                series_parameters.update({'border': {'color': columns[column]['color'], 'dash_type': columns[column]['dash'], 'width': columns[column]['weight']},
+                                          })
+            elif chart_type in ['column']:
+                # add bar chart
+                series_parameters.update({'fill': {'color': columns[column]['color']},
+                                          'overlap': 100 if chart_subtype == 'stacked' else 0,
+                                          })
+
+            if secondary:
+                # move to secondary axes
+                series_parameters.update({'{}2_axis'.format(xy): axes['{}2'.format(xy)] is not None for xy in ['x', 'y']})
+
+            added_chart.add_series(series_parameters)
+
+        # set axes
+        if not secondary:
+            # set primary axes
+            if axes['x']: added_chart.set_x_axis(axes['x'])
+            if axes['y']: added_chart.set_y_axis(axes['y'])
+
+        else:
+            # set secondary axes
+            if axes['x2']: added_chart.set_x2_axis(axes['x2'])
+            if axes['y2']: added_chart.set_y2_axis(axes['y2'])
+
+        return added_chart
 
     # print output to Excel file and open
     def to_excel(self, start=False):

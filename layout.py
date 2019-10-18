@@ -12,9 +12,6 @@ from urls import URL
 class APC:
     url, endpoint = URL.get_apc()
 
-    ##server_types = {'Sedona': 'Catalina',
-    ##                'Eldora': 'Catalina'} ## FIGURE OUT HOW TO ADD THIS TO DATABASE
-
     # check if there is an internet connection
     def check_internet():
         try:
@@ -35,27 +32,21 @@ class APC:
         return data
 
     def __init__(self):
-        self.connected = APC.check_internet()
-        if self.connected:
-            self.sites = APC.get_data('sites')
-            self.servers = APC.get_data('servers')
-        else:
-            self.sites, self.servers = [None]*2
+        self.sites = None
+        self.servers = None
 
     # get performance of each power module at a site
     def get_site_performance(self, site_code, start_date=None, end_date=None, tmo_threshold=10):
-        print('Downloading {} performance from APC'.format(site_code))
         site_performance = {}
-        if self.connected and (site_code is not None):
+        if APC.check_internet() and ((site_code is not None) and len(site_code)):
+            if self.sites is None: self.sites = APC.get_data('sites')
+            if self.servers is None: self.servers = APC.get_data('servers')
 
+            print('Downloading {} performance from APC'.format(site_code))
             for server_code in self.servers.query('site == @site_code')['id']:
                 server_number = server_code.replace(site_code, '')
                 server_nameplate = self.servers.query('id == @server_code')['nameplateKw'].squeeze()
                 server_model = self.servers.query('id == @server_code')['type'].squeeze().title()
-                ##if server_model in APC.server_types:
-                ##    server_rename = APC.server_types[server_model]
-                ##    print('Renaming {} to {}'.format(server_model, server_rename))
-                ##    server_model = server_rename
 
                 site_performance[server_number] = {'nameplate': server_nameplate,
                                                    'model': server_model,
@@ -107,22 +98,36 @@ class APC:
         # get start date based on increase in TMO from a FRU replacement
         fru_reset = fru_performance.query('~kw.isna()').query('kw.diff() > @tmo_threshold')
         fru_install_date = fru_performance.index.min() if fru_reset.empty else fru_reset.index.max()
-        #fru_reset_date = fru_performance.query('~kw.isna()').query('kw.diff() > @tmo_threshold').idxmax()['kw']
-        #fru_install_date = fru_reset_date if not isna(fru_reset_date) else fru_performance.index.min()
         fru_current_date = fru_performance.index.max()
         fru_operating_time = relativedelta(fru_performance.index[-1], fru_install_date)
 
         return fru_performance, fru_install_date, fru_current_date, fru_operating_time
 
+# generic layout for servers
 class ServerLayout:
+    '''
+    Sites start with variable servers and enclosures.
+    If there are servers, then the layout exists.
+    '''
     def __init__(self, server_layout):
         self.server_layout = server_layout if len(server_layout) else None
 
+    def __repr__(self):
+        repr_string = '\n'.join(' |'.join(' {}.{}'.format(server_number, fru_number) \
+            for fru_number in self.get_enclosure_numbers(server_number)) for server_number in self.get_server_numbers())
+        return repr_string
+
+    # layout existence
     def exist(self):
         exists = self.server_layout is not None
         return exists
 
+# actual deployed server layout from APC
 class ExistingServers(ServerLayout):
+    '''
+    Servers at existing sites have been running for
+    some time and have actual performance.
+    '''
     def __init__(self, server_layout):
         ServerLayout.__init__(self, server_layout)
 
@@ -175,17 +180,17 @@ class ExistingServers(ServerLayout):
             enclosure_numbers = self.server_layout[server_number]['frus'].keys()
             return enclosure_numbers
 
-# user defined servers
+# user defined server layout
 class NewServers(ServerLayout):
+    '''
+    Servers at theoretical new sites have 
+    sequential numbering and no performance yet.
+    '''
     def __init__(self, server_layout):
         ServerLayout.__init__(self, server_layout)
 
-    def __repr__(self):
-        '\n'.join(' | '.join('{}{}'.format(server_number, fru_number) \
-            for fru_number in self.get_enclosure_numbers(server_number)) for server_number in self.get_server_numbers())
-
     def __getitem__(self, number):
-        item = self.server_layout.query('server number == @number').iloc[0]
+        item = self.server_layout.query('`server number` == @number').iloc[0]
         return item
 
     def get_size(self):

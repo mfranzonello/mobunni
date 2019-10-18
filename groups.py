@@ -92,6 +92,7 @@ class Technology(Group):
         self.new_servers = kwargs['new_servers']
         self.existing_servers = kwargs['existing_servers']
         self.roadmap = kwargs.get('roadmap')
+
         self.site_code = kwargs['site_code']
         self.site_name = self.site_code if len(self.site_code) else '< NEW SITE >'
 
@@ -127,7 +128,7 @@ class Technology(Group):
     # check for default roadmap if none given
     def get_roadmap(self, sql_db=None):
         if self.roadmap is not None:
-            roadmap = self.roadmap
+            roadmap = self.roadmap[['model', 'mark', 'model_number']]
         elif sql_db is not None:
             roadmap = sql_db.get_default_modules()
         else:

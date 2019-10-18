@@ -149,6 +149,11 @@ class DataSheets:
         alternative_name = self.sql_db.get_alternative_server_model(server_model)
         return alternative_name
 
+    # get power modules that work with energy server
+    def get_compatible_modules(self, server_model):
+        allowed_modules = self.sql_db.get_compatible_modules(server_model)
+        return allowed_modules
+
 # details of power modules
 class PowerModules(DataSheets):
     def __init__(self, sql_db):
@@ -164,23 +169,31 @@ class PowerModules(DataSheets):
     def get_model(self, install_date, wait_period=None, power_needed=0, max_power=None, energy_needed=0, time_needed=0, best=False,
                   server_model=None, roadmap=None, match_server_model=False):
 
+        # establish technology roadmap
         if roadmap is None:
             allowed = self.sql_db.get_default_modules()
         else:
             allowed = roadmap
 
+        # make sure the roadmap allows for the server type
+        server_model = self.get_alternative_model('server_model')
+        allowed = allowed.append(self.sql_db.get_default_modules().query('model == @server_model')).drop_duplicates()
+
+        # get modules that are compatible and available
         buildable_modules = self.sql_db.get_buildable_modules(install_date, server_model=server_model, allowed=allowed, wait_period=wait_period)
         
         if match_server_model and (server_model is not None):
-            server_model = self.get_alternative_model('server_model') # make sure to use compatible server name
+            # pick the original module for the server type
             buildable_modules.query('model == @server_model', inplace=True)
 
             if buildable_modules.empty:
+                # server was available ahead of schedule
                 print('{} not available on {}, using earliest possible module'.format(server_model, install_date))
                 buildable_modules = self.sql_db.get_buildable_modules(install_date=0, server_model=server_model, allowed=allowed)
                 buildable_modules.query('model == @server_model', inplace=True)
         
         if not buildable_modules.empty:
+            # get rating and energy
             buildable_modules['rating'], buildable_modules['energy'] = [None]*2
             buildable_modules.loc[:, ['rating', 'energy']] = buildable_modules.apply(lambda x: (self.get_rating(x['model'], x['mark'], x['model_number']),
                                                                                                 self.get_energy(x['model'], x['mark'], x['model_number'], time_needed)),
@@ -244,18 +257,13 @@ class HotBoxes(DataSheets):
         DataSheets.__init__(self, sql_db)
 
     def get_model_number(self, server_model):
-        model_number, rating = self.sql_db.get_enclosure_model_number(server_model)
-        return model_number, rating
+        model_number, nameplate = self.sql_db.get_enclosure_model_number(server_model)
+        return model_number, nameplate
 
 # details of energy servers
 class EnergyServers(DataSheets):
     def __init__(self, sql_db):
         DataSheets.__init__(self, sql_db)
-
-    # get power modules that work with energy server
-    def get_compatible_modules(self, server_model):
-        allowed_modules = self.sql_db.get_compatible_modules(server_model)
-        return allowed_modules
 
     # get base model of a server model number
     def get_server_model(self, **kwargs):

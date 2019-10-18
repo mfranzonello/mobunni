@@ -315,8 +315,8 @@ class Site:
         old_fru = server.replace_fru(enclosure_number=enclosure_number, fru=fru)
 
         # check if enclosure rating can handle FRU model
-        if (fru is not None) and (fru.get_power() > server.enclosures[enclosure_number].rating):
-            self.shop.upgrade_enclosures(self.number, server, fru, reason='more power needed than enclosure rating limit')
+        if (fru is not None) and (fru.get_power() > server.enclosures[enclosure_number].nameplate):
+            self.shop.upgrade_enclosures(self.number, server, fru, reason='more power needed than enclosure nameplate limit')
         return old_fru
 
     # move FRUs around to minimize ceiling loss

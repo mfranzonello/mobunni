@@ -117,8 +117,9 @@ class Templates:
         install_date = None # blank date
 
         power_curves, efficiency_curves = self.power_modules.get_curves(model, mark, model_number)
+        rating = self.power_modules.get_rating(model, mark, model_number)
 
-        fru = FRU(serial, model, mark, model_number, power_curves, efficiency_curves, install_date, current_date=install_date)
+        fru = FRU(serial, model, mark, model_number, rating, power_curves, efficiency_curves, install_date, current_date=install_date)
 
         # add FRU template
         self.modules[(model, mark, model_number)] = fru
@@ -442,9 +443,9 @@ class Shop:
         self.transact(server.serial, server.model, server.model_number, server.nameplate, None,
                       'installed ES', 'at', site_number, server.number, None, cost, reason=reason)
 
-        enclosure_model_number, enclosure_rating = self.hot_boxes.get_model_number(server_model['model'])
+        enclosure_model_number, enclosure_nameplate = self.hot_boxes.get_model_number(server_model['model'])
 
-        enclosures = self.create_enclosures(site_number, server, server.model, enclosure_model_number, enclosure_rating,
+        enclosures = self.create_enclosures(site_number, server, server.model, enclosure_model_number, enclosure_nameplate,
                                             enclosure_count=server_model['enclosures'], plus_one_count=server_model['plus_one'])     
 
         for enclosure in enclosures:
@@ -464,12 +465,12 @@ class Shop:
     def upgrade_enclosures(self, site_number, server, new_fru, reason=None):
         cost = self.get_cost('upgrade enclosure')
 
-        enclosure_model_number, enclosure_rating = self.hot_boxes.get_model_number(new_fru.model)
+        enclosure_model_number, enclosure_nameplate = self.hot_boxes.get_model_number(new_fru.model)
 
         for enclosure in server.enclosures:
-            enclosure.upgrade_enclosure(new_fru.model, enclosure_model_number, enclosure_rating)
+            enclosure.upgrade_enclosure(new_fru.model, enclosure_model_number, enclosure_nameplate)
 
-            self.transact(enclosure.serial, enclosure.model, enclosure.model_number, enclosure.rating, None, 'increase enclosure rating',
+            self.transact(enclosure.serial, enclosure.model, enclosure.model_number, enclosure.nameplate, None, 'increase enclosure nameplate',
                           'at', site_number, server.number, enclosure.number, cost, reason)
         return
     
@@ -479,7 +480,7 @@ class Shop:
         return nameplate
 
     # create an enclosure cabinent to add to a server to house a FRU
-    def create_enclosures(self, site_number, server, enclosure_model, enclosure_model_number, rating,
+    def create_enclosures(self, site_number, server, enclosure_model, enclosure_model_number, nameplate,
                           start_number=0, enclosure_count=0, plus_one_count=0,
                           reason='populating server'):
         # get cost per enclosure
@@ -489,9 +490,9 @@ class Shop:
         enclosures = []
         for c in range(enclosure_count + plus_one_count):
             serial = self.get_serial('ENC')
-            enclosure = Enclosure(serial, start_number + c, enclosure_model, enclosure_model_number, rating)
+            enclosure = Enclosure(serial, start_number + c, enclosure_model, enclosure_model_number, nameplate)
             enclosures.append(enclosure)
-            self.transact(serial, enclosure.model, enclosure.model_number, enclosure.rating, None,
+            self.transact(serial, enclosure.model, enclosure.model_number, enclosure.nameplate, None,
                           'add enclosure', 'at', site_number, server.number, enclosure.number, costs[c], reason=reason)
 
         return enclosures

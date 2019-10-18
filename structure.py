@@ -170,9 +170,9 @@ class SQLDB:
 
     # select enclosure compatible with energy server
     def get_enclosure_model_number(self, server_model):
-        sql = 'SELECT model_number, rating FROM Enclosure WHERE model = "{}"'.format(server_model)
-        model_number, rating = read_sql(sql, self.connection).iloc[0, :]
-        return model_number, rating
+        sql = 'SELECT model_number, nameplate FROM Enclosure WHERE model = "{}"'.format(server_model)
+        model_number, nameplate = read_sql(sql, self.connection).iloc[0, :]
+        return model_number, nameplate
 
     # select default server sizes
     def get_server_nameplates(self, server_model_class, target_size):

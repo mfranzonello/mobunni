@@ -12,10 +12,21 @@ class Component:
     a mark, essentially a subcategory of a base model.
     Each component has a serial number for blockchain tracking.
     '''
-    def __init__(self, serial, model, model_number):
+    def __init__(self, serial, model, model_number, **kwargs):
         self.serial = serial
         self.model = model
         self.model_number = model_number
+        
+        if 'mark' in kwargs:
+            self.mark = kwargs['mark']
+
+        if 'nameplate' in kwargs:
+            self.nameplate = kwargs['nameplate']
+        if 'rating' in kwargs:
+            self.rating = kwargs['rating']
+
+        if 'number' in kwargs:
+            self.number = kwargs['number']
 
 # power module (field replaceable unit)
 class FRU(Component):
@@ -25,15 +36,11 @@ class FRU(Component):
     with a new energy server) or "FRU" (installed as a
     replacement for an original module).
     '''
-    def __init__(self, serial, model, mark, model_number, power_curves, efficiency_curves, install_date, current_date,
+    def __init__(self, serial, model, mark, model_number, rating, power_curves, efficiency_curves, install_date, current_date,
                  fit=None):
         # FRU defined by sampled power curve at given installation year
         # FRUs are typically assumed to be new and starting at time 0, otherwise they follow the best fit power curve
-        Component.__init__(self, serial, model, model_number)
-        #self.serial = serial
-        #self.model = model
-        self.mark = mark
-        #self.model_number = model_number ## MODEL NUMBER
+        Component.__init__(self, serial, model, model_number, mark=mark, rating=rating)
 
         self.install_date = install_date
         self.month = 0
@@ -41,25 +48,12 @@ class FRU(Component):
         self.power_curves = power_curves
         self.power_curve = self.power_curves.pick_curve(allowed=[0,1], fit=fit)
         self.ideal_curve = self.power_curves.pick_curve(allowed='ideal')
-        self.rating = self.ideal_curve[0]
 
         self.efficiency_curves = efficiency_curves
         self.efficiency_curve = self.efficiency_curves.pick_curve(fit=fit)
 
         self.max_efficiency = self.efficiency_curve.max()
-
-    def __str__(self):
-        if self.is_dead():
-            age_string = ' XXX '
-        else:
-            age_string = '{:0.1f}yrs'.format(self.get_month()/12)
-        string = 'PWM: {:0.0f}@{:0.1f}kw ({:0.1%}tmo, {:0.1%}eff) - {}'.format(self.rating,
-                                                                               self.get_power(),
-                                                                               self.get_power()/self.rating,
-                                                                               self.get_efficiency(),
-                                                                               age_string)
-        return string
-       
+      
     # month to look at
     def get_month(self, lookahead=None):
         if lookahead is None:
@@ -182,6 +176,10 @@ class FRU(Component):
 
     # replace stacks and choose new power curves for bespoke options
     def overhaul(self, model_number, power_curves, efficiency_curves):
+        '''
+        An overhauled FRU starts its life over with new power
+        and efficiency curves.
+        '''
         # give new bespoke model number
         self.model_number = model_number
         # set new power and efficiency curves
@@ -191,20 +189,18 @@ class FRU(Component):
 
     # create a copy of the base FRU
     def copy(self, serial, install_date, current_date, fit=None):
-        fru = FRU(serial, self.model, self.mark, self.model_number, self.power_curves, self.efficiency_curves, install_date, current_date, fit=fit)
+        '''
+        The shop uses a template FRU to produce
+        new versions.
+        '''
+        fru = FRU(serial, self.model, self.mark, self.model_number, self.rating, self.power_curves, self.efficiency_curves, install_date, current_date, fit=fit)
         return fru
         
 # cabinet in energy server that can house a FRU
 class Enclosure(Component):  
-    def __init__(self, serial, number, model, model_number, rating):
-        Component.__init__(self, serial, model, model_number)
-        #self.serial = serial
-        self.number = number
-        #self.model = model
-        #self.model_number = model_number
+    def __init__(self, serial, number, model, model_number, nameplate):
+        Component.__init__(self, serial, model, model_number, nameplate=nameplate, number=number)
         self.fru = None
-
-        self.rating = rating # maximum amount of power output
 
     # enclosure can hold a FRU
     def is_empty(self):
@@ -230,10 +226,13 @@ class Enclosure(Component):
 
     # get power of FRU if not empty
     def get_power(self, lookahead=None):
+        '''
+        The output power of an enclosure is limited by its nameplate.
+        '''
         if self.is_empty():
             power = 0
         else:
-            power = min(self.rating, self.fru.get_power(lookahead=lookahead))
+            power = min(self.nameplate, self.fru.get_power(lookahead=lookahead))
 
         return power
 
@@ -252,31 +251,16 @@ class Enclosure(Component):
         return efficiency
 
     # upgrade enclosure model type
-    def upgrade_enclosure(self, model, model_number, rating):
+    def upgrade_enclosure(self, model, model_number, nameplate):
         self.model = model
         self.model_number = model_number
-        self.rating = rating
+        self.nameplate = nameplate
 
 # housing unit for power modules
 class Server(Component):
     def __init__(self, serial, number, model, model_number, nameplate):
-        Component.__init__(self, serial, model, model_number)
-        #self.serial = serial
-        self.number = number
-        #self.model = model
-        #self.model_number = model_number
-        self.nameplate = nameplate
+        Component.__init__(self, serial, model, model_number, nameplate=nameplate, number=number)
         self.enclosures = []
-
-    def __str__(self):
-        ceiling_loss = self.get_ceiling_loss()
-        ceiling_string = ' | {:0.1f}kW ceiling loss'.format(ceiling_loss) if ceiling_loss > 0 else ''
-        server_string = 'ES: {:0.1f}kW (nameplate {:0.0f}kW){}'.format(self.get_power(), self.nameplate, ceiling_string)
-
-        enclosure_string = ' '+' \n '.join(str(fru) if fru is not None else 'EMPTY' for fru in self.enclosures)
-        line_string = '-'*20
-        string = '\n'.join([server_string, line_string, enclosure_string, line_string])
-        return string
 
     # add an empty enclosure for a FRU or plus-one
     def add_enclosure(self, enclosure):

@@ -32,8 +32,8 @@ class ExcelSeer:
                                                                                  self.tables[t]['sheet_name'],
                                                                                  self.tables[t]['ref']) for t in self.tables)
         string_named_ranges = 'Named ranges:\n' + ''.join(' {}: sheet "{}", value {}\n'.format(r_n, s_n, self.data[(s_n, r_n)]) for (s_n, r_n) in self.data)
-        string_all = string_filename + string_tables + string_named_ranges
-        return string_all
+        repr_string = string_filename + string_tables + string_named_ranges
+        return repr_string
 
     def __getitem__(self, location):
         sheet_name, item_name = location
