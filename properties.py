@@ -10,7 +10,17 @@ from inspection import Monitor, Inspector
 from debugging import StopWatch
 
 # group of energy servers
-class Site:    
+class Site:
+    '''
+    A site holds a collection of energy servers with
+    enclosures filled with power modules.
+    Each month it is inspected to see if it is meeting
+    contractural requirements. It calls the shop
+    for new components or redeploys from the rest
+    of the fleet.
+    At the end of the contract, the site is
+    decommissioned.
+    '''
     def __init__(self, number, shop, contract): 
         self.number = number
         self.shop = shop

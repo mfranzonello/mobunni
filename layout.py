@@ -112,17 +112,32 @@ class APC:
 
         return fru_performance, fru_install_date, fru_current_date, fru_operating_time
 
-class ExistingServers:
-    def __init__(self, site_performance):
-        self.performance = site_performance if len(site_performance) else None
+class ServerLayout:
+    def __init__(self, server_layout):
+        self.server_layout = server_layout if len(server_layout) else None
 
     def exist(self):
-        exists = self.performance is not None
+        exists = self.server_layout is not None
         return exists
+
+class ExistingServers(ServerLayout):
+    def __init__(self, server_layout):
+        ServerLayout.__init__(self, server_layout)
+
+    def __getitem__(self, number):
+        if type(number) in [str, int]:
+            server_number = number
+            item = self.server_layout[server_number]
+        elif type(number) is tuple:
+            server_number, fru_number = number
+            item = self.server_layout[server_number]['frus'][fru_number]
+        else:
+            item = None
+        return item
 
     def get_size(self):
         if self.exist():
-            size = sum([self.performance[server]['nameplate'] for server in self.performance])
+            size = sum([self.server_layout[server]['nameplate'] for server in self.get_server_numbers()])
         else:
            size = 0
 
@@ -130,8 +145,10 @@ class ExistingServers:
 
     def get_dates(self):
         if self.exist():
-            install_date = min([self.performance[server]['frus'][fru]['install date'] for server in self.performance for fru in self.performance[server]['frus']]).date()
-            current_date = max([self.performance[server]['frus'][fru]['current date'] for server in self.performance for fru in self.performance[server]['frus']]).date()
+            install_date = min([self.server_layout[server]['frus'][fru]['install date'] for server in self.get_server_numbers() \
+                                for fru in self.get_enclosure_numbers(server)]).date()
+            current_date = max([self.server_layout[server]['frus'][fru]['current date'] for server in self.get_server_numbers() \
+                                for fru in self.get_enclosure_numbers(server)]).date()
             
             operating_time = relativedelta(current_date, install_date)
             start_month = operating_time.years * 12 + operating_time.months
@@ -143,59 +160,49 @@ class ExistingServers:
 
     def get_models(self):
         if self.exist():
-            models = [self.performance[server]['model'] for server in self.performance]
+            models = [self.server_layout[server]['model'] for server in self.get_server_numbers()]
             return models
 
     def get_server_numbers(self):
         if self.exist():
-            server_numbers = self.performance.keys()
+            server_numbers = self.server_layout.keys()
             return server_numbers
 
     def get_enclosure_numbers(self, server_number):
         if self.exist():
-            enclosure_numbers = self.performance[server_number]['frus'].keys()
+            enclosure_numbers = self.server_layout[server_number]['frus'].keys()
             return enclosure_numbers
 
-    def __getitem__(self, number):
-        if type(number) in [str, int]:
-            server_number = number
-            item = self.performance[server_number]
-        elif type(number) is tuple:
-            server_number, fru_number = number
-            item = self.performance[server_number]['frus'][fru_number]
-        else:
-            item = None
-        return item
-
 # user defined servers
-class NewServers:
-    def __init__(self, new_servers):
-        self.servers = new_servers if len(new_servers) else None
+class NewServers(ServerLayout):
+    def __init__(self, server_layout):
+        ServerLayout.__init__(self, server_layout)
 
-    def exist(self):
-        exists = self.servers is not None
-        return exists
+    def __repr__(self):
+        '\n'.join(' | '.join('{}{}'.format(server_number, fru_number) \
+            for fru_number in self.get_enclosure_numbers(server_number)) for server_number in self.get_server_numbers())
+
+    def __getitem__(self, number):
+        item = self.server_layout.query('server number == @number').iloc[0]
+        return item
 
     def get_size(self):
         if self.exist():
-            size = self.servers['nameplate'].sum()
+            size = self.server_layout['nameplate'].sum()
             return size
 
     def get_server_numbers(self):
         if self.exist():
-            server_numbers = self.servers['server number'].to_list()
+            server_numbers = self.server_layout['server number'].to_list()
             return server_numbers
 
-    def get_enclosure_numbers(self, server_number):
+    def get_enclosure_numbers(self, server_number, filled_only=True):
         if self.exist():
-            enclosure_numbers = list(range(int(self[server_number]['filled'])))
+            to_count = ['filled'] if filled_only else ['filled', 'empty']
+            enclosure_numbers = list(range(int(self[server_number][to_count].sum())))
             return enclosure_numbers
 
     def get_models(self):
         if self.exist():
-            models = self.servers['model'].to_list()
+            models = self.server_layout['model'].to_list()
             return models
-
-    def __getitem__(self, number):
-        item = self.servers[self.servers['server number']==number].iloc[0]
-        return item
