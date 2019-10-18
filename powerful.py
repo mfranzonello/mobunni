@@ -22,7 +22,7 @@ class PowerCurves:
         probabilities.loc[0, 'top'] = 0
 
         for i in range(1, len(probabilities)):
-            probabilities.loc[i, 'top'] = 2*probabilities.loc[i, 'percentile'] - probabilities.loc[i-1, 'top']
+            probabilities.loc[i, 'top'] = 2 * probabilities.loc[i, 'percentile'] - probabilities.loc[i-1, 'top']
         probabilities.loc[:, 'probability'] = probabilities['top'].diff()
         probabilities.dropna(inplace=True)
         probabilities.index = percentiles
@@ -31,7 +31,7 @@ class PowerCurves:
         return probabilities
 
     # return range of curves probable based on current observation
-    def get_allowed_curves(self, allowed=[0,1], fit=None):
+    def get_allowed_curves(self, allowed=[0, 1], fit=None):
         if fit is None:
             # new FRU
             if allowed == 'ideal':
@@ -86,7 +86,7 @@ class PowerCurves:
         return probabilities_normalized
 
     # pick power curve for power module
-    def pick_curve(self, allowed=[0,1], fit=None):
+    def pick_curve(self, allowed=[0, 1], fit=None):
         allowed_curves = self.get_allowed_curves(allowed, fit)
 
         probabilities_normalized = self.normalize_probabilties(allowed_curves.columns)
@@ -160,46 +160,46 @@ class PowerModules:
         buildable_modules = self.sql_db.get_buildable_modules(install_date, server_model=server_model, allowed=allowed, wait_period=wait_period)
         
         if match_server_model and (server_model is not None):
-            buildable_modules = buildable_modules[buildable_modules['model']==server_model]
+            buildable_modules.query('model == @server_model', inplace=True)
 
             if not len(buildable_modules):
                 print('{} not available on {}, using earliest possible module'.format(server_model, install_date))
                 buildable_modules = self.sql_db.get_buildable_modules(install_date=0, server_model=server_model, allowed=allowed)
-                buildable_modules = buildable_modules[buildable_modules['model']==server_model]
+                buildable_modules.query('model == @server_model', inplace=True)
         
         if not buildable_modules.empty:
-            buildable_modules.loc[:, 'rating'] = buildable_modules.apply(lambda x: self.get_rating(x['model'], x['mark'], x['model_number']), axis='columns')
+            buildable_modules.loc[:, 'rating'] = buildable_modules.apply(lambda x: self.get_rating(x['model'], x['mark'], x['model_number']),
+                                                                         axis='columns')
 
-            buildable_modules.loc[:, 'energy'] = buildable_modules.apply(lambda x: self.get_energy(x['model'], x['mark'], x['model_number'], time_needed), axis='columns')
+            buildable_modules.loc[:, 'energy'] = buildable_modules.apply(lambda x: self.get_energy(x['model'], x['mark'], x['model_number'], time_needed),
+                                                                         axis='columns')
 
             # check power requirements
             max_rating = buildable_modules['rating'].max()
             if (max_rating >= power_needed) and (not best):
                 # if there is a model big enough to handle the load, choose it
-                filtered_power_modules = buildable_modules[buildable_modules['rating'] >= power_needed]
+                power_filter = 'rating >= @power_needed'
             else:
                 # choose the biggest model available
-                filtered_power_modules = buildable_modules[buildable_modules['rating'] == max_rating]
+                power_filter = 'rating == @max_rating'
+            buildable_modules.query(power_filter, inplace=True)
 
             if max_power is not None:
-                filtered_power_modules = filtered_power_modules[filtered_power_modules['rating'] <= max_power]
+                buildable_modules.query('rating <= @max_power', inplace=True)
 
             # check energy requirements
-            max_energy = filtered_power_modules['energy'].max()
+            max_energy = buildable_modules['energy'].max()
             if (max_energy >= energy_needed) and (not best):
                 # if there is a model big enough to handle the load, choose it
-                filtered_modules = filtered_power_modules[filtered_power_modules['energy'] >= energy_needed]
+                buildable_modules.query('energy >= @energy_needed', inplace=True)
 
             else:
-                filtered_modules = filtered_power_modules[filtered_power_modules['energy'] == max_energy]
+                buildable_modules.query('energy == @max_energy', inplace=True)
 
-            if len(filtered_modules):
+            if len(buildable_modules):
                 # there is at least one model that matches requirements
-                module = filtered_modules.iloc[0, :]
-                model = module['model']
-                mark = module['mark']
-                model_number = module['model_number']
-        
+                model, mark, model_number = buildable_modules.iloc[0][['model', 'mark', 'model_number']]
+                
                 return model, mark, model_number
 
     # return initial power rating of a given module

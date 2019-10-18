@@ -10,7 +10,6 @@ from xl_inputs import ExcelInt
 from xl_outputs import Excelerator, ExcelePaint
 from groups import Details, Commitments, Technology, Tweaks, Thresholds
 from simulate import Scenario, Simulation
-
 from debugging import StopWatch, open_results
 
 # inputs

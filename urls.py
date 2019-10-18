@@ -1,4 +1,4 @@
-import secret
+from secret import passcodes
 
 class URL:
     databases = {'sqlite': {'parameters': {'connector': 'sqlite',
@@ -6,16 +6,16 @@ class URL:
                             'string format': '{connector}:///{database}.db'},
                             
                  'remotemysql': {'parameters': {'connector': 'mysql',
-                                                'username': secret.passcodes['remotemysql']['username'],
-                                                'password': secret.passcodes['remotemysql']['password'],
+                                                'username': passcodes['remotemysql']['username'],
+                                                'password': passcodes['remotemysql']['password'],
                                                 'host': 'remotemysql.com',
                                                 'port': '3306',
-                                                'database': secret.passcodes['remotemysql']['username']},
+                                                'database': passcodes['remotemysql']['username']},
                                  'string format': '{connector}://{username}:{password}@{host}:{port}/{database}'},
 
                  'mysql': {'parameters': {'connector': 'mysql',
-                                          'username': secret.passcodes['mysql']['username'],
-                                          'password': secret.passcodes['mysql']['password'],
+                                          'username': passcodes['mysql']['username'],
+                                          'password': passcodes['mysql']['password'],
                                           'host': '127.0.0.1',
                                           'port': '3306',
                                           'database': 'servicecosts'},

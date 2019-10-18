@@ -7,7 +7,6 @@ from numpy import nan
 from sqlalchemy import create_engine
 
 from urls import URL
-
 from debugging import StopWatch
 
 # ask user for project selection
@@ -192,35 +191,20 @@ class SQLDB:
         if server_model_number is None:
             # need a specific nameplate and enclosure count
             if (nameplate_needed > 0) and (n_enclosures is not None) and \
-                len(server_details[\
-                    (server_details['nameplate'] == nameplate_needed) & \
-                    (server_details['enclosures'] + server_details['plus_one'] == n_enclosures)]): ## pick standard first?
-
-                server_details = server_details[\
-                    (server_details['nameplate'] == nameplate_needed) & \
-                    (server_details['enclosures'] + server_details['plus_one'] == n_enclosures)]
-
+                len(server_details.query('(nameplate == @nameplate_needed) & (enclosures + plus_one == @n_enclosures)')):
+                server_details.query('(nameplate == @nameplate_needed) & (enclosures + plus_one == @n_enclosures)', inplace=True)
+                
             # need a specific nameplate that is standard
-            elif len(server_details[\
-                    (server_details['nameplate'] == nameplate_needed) & \
-                    (server_details['standard'] == 1)]):
-
-                server_details = server_details[\
-                    (server_details['nameplate'] == nameplate_needed) & \
-                    (server_details['standard'] == 1)]
+            elif len(server_details.query('(nameplate == @nameplate_needed) & (standard == 1)')):
+                server_details.query('(nameplate == @nameplate_needed) & (standard == 1)', inplace=True)
            
             # need a specific nameplate, no standard specified
-            elif len(server_details[\
-                    (server_details['nameplate'] == nameplate_needed) & \
-                    (server_details['plus_one'] == 1)]):
-
-                server_details = server_details[\
-                    (server_details['nameplate'] == nameplate_needed) & \
-                    (server_details['plus_one'] == 1)].sort_values('enclosures')
+            elif len(server_details.query('(nameplate == @nameplate_needed) & (plus_one == 1)')):
+                server_details.query('(nameplate == @nameplate_needed) & (plus_one == 1)', inplace=True)
 
             # need best fit nameplate
             else:
-                server_details = server_details[server_details['nameplate'] <= nameplate_needed].sort_values(['nameplate', 'plus_one', 'enclosures'], ascending=False)
+                server_details.query('nameplate <= @nameplate_needed').sort_values(['nameplate', 'plus_one', 'enclosures'], ascending=False)
                
         server_model = server_details.iloc[0]
 
@@ -237,18 +221,15 @@ class SQLDB:
         sql = 'SELECT DISTINCT model, mark, model_number FROM EfficiencyCurve'
         efficiency_modules = read_sql(sql, self.connection)
         
-        buildable_modules = buildable_modules[\
-            buildable_modules['model'].isin(power_modules['model']) &\
-            buildable_modules['mark'].isin(power_modules['mark']) &\
-            buildable_modules['model_number'].isin(power_modules['model_number']) &\
-            buildable_modules['model'].isin(efficiency_modules['model']) &\
-            buildable_modules['mark'].isin(efficiency_modules['mark']) &\
-            buildable_modules['model_number'].isin(efficiency_modules['model_number'])]
-
+        buildable_modules.query(' & '.join('({x} in @{y}.{x})'.format(x=x, y=y) \
+                                for x in ['model', 'mark', 'model_number'] \
+                                for y in ['power_modules', 'efficiency_modules']),
+                                inplace=True)
+            
         filtered = self.get_compatible_modules(server_model)
 
         if filtered is not None:
-            buildable_modules = buildable_modules[buildable_modules['model'].isin(filtered)]
+            buildable_modules.query('model in @filtered', inplace=True)
 
         if allowed is not None:
             allowed_modules = merge(buildable_modules, allowed, how='inner')

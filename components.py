@@ -5,16 +5,35 @@ from dateutil.relativedelta import relativedelta
 
 from debugging import StopWatch
 
+class Component:
+    '''
+    A component is a physical object with a model (base)
+    and model number (specific version). It can also have
+    a mark, essentially a subcategory of a base model.
+    Each component has a serial number for blockchain tracking.
+    '''
+    def __init__(self, serial, model, model_number):
+        self.serial = serial
+        self.model = model
+        self.model_number = model_number
+
 # power module (field replaceable unit)
-class FRU:
+class FRU(Component):
+    '''
+    A FRU (Field Replaceable Unit) is an object to represent
+    a power module, which can either be "revenue" (installed
+    with a new energy server) or "FRU" (installed as a
+    replacement for an original module).
+    '''
     def __init__(self, serial, model, mark, model_number, power_curves, efficiency_curves, install_date, current_date,
                  fit=None):
         # FRU defined by sampled power curve at given installation year
         # FRUs are typically assumed to be new and starting at time 0, otherwise they follow the best fit power curve
-        self.serial = serial
-        self.model = model
+        Component.__init__(self, serial, model, model_number)
+        #self.serial = serial
+        #self.model = model
         self.mark = mark
-        self.model_number = model_number ## MODEL NUMBER
+        #self.model_number = model_number ## MODEL NUMBER
 
         self.install_date = install_date
         self.month = 0
@@ -176,12 +195,13 @@ class FRU:
         return fru
         
 # cabinet in energy server that can house a FRU
-class Enclosure:  
+class Enclosure(Component):  
     def __init__(self, serial, number, model, model_number, rating):
-        self.serial = serial
+        Component.__init__(self, serial, model, model_number)
+        #self.serial = serial
         self.number = number
-        self.model = model
-        self.model_number = model_number
+        #self.model = model
+        #self.model_number = model_number
         self.fru = None
 
         self.rating = rating # maximum amount of power output
@@ -238,12 +258,13 @@ class Enclosure:
         self.rating = rating
 
 # housing unit for power modules
-class Server:
+class Server(Component):
     def __init__(self, serial, number, model, model_number, nameplate):
-        self.serial = serial
+        Component.__init__(self, serial, model, model_number)
+        #self.serial = serial
         self.number = number
-        self.model = model
-        self.model_number = model_number
+        #self.model = model
+        #self.model_number = model_number
         self.nameplate = nameplate
         self.enclosures = []
 
@@ -359,6 +380,10 @@ class Server:
 
     # degrade each FRU in server
     def degrade(self):
+        '''
+        After a month of operation, all the enclosures are moved
+        forward in time.
+        '''
         for enclosure in self.enclosures:
             if enclosure.is_filled():
                 enclosure.fru.degrade()

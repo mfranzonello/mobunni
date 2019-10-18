@@ -6,6 +6,14 @@ from pandas import DataFrame
 
 # generic collection
 class Group:
+    '''
+    A group is a generic collection of inputs,
+    either from a user interface or a backing
+    database. These control the specifications
+    of each scenario and the simulator.
+    It also contains a function to list all
+    inputs in a dataframe for auditing outputs.
+    '''
     def __init__(self):
         self.data = None
 
@@ -16,6 +24,12 @@ class Group:
 
 # common details across project
 class Details(Group):
+    '''
+    These details specify how many sites to
+    simulate (one site or a whole fleet), how many
+    years to simulated a fleet and how many
+    monte carlo simulations to run.
+    '''
     def __init__(self, n_sites, n_years, n_runs, n_scenarios):
         Group.__init__(self)
         self.n_sites = n_sites
@@ -29,6 +43,14 @@ class Details(Group):
         
 # collection of customer commitments
 class Commitments(Group):
+    '''
+    These are the monthly power and efficiency
+    outputs that must be maintained through
+    the life of the contract, as well as the
+    contract start date and "downside" years
+    (a time when FRUs cannot be replaced because
+    of manufacturing limitations).
+    '''
     limits_values = ['PTMO', 'WTMO', 'CTMO', 'Peff', 'Weff', 'Ceff', 'window']
     def __init__(self, **kwargs):
         Group.__init__(self)
@@ -60,6 +82,11 @@ class Commitments(Group):
 
 # collection of exisiting and future technology
 class Technology(Group):
+    '''
+    These define which servers exists or should
+    exist at a target site, as well as what 
+    power modules can be used in the future.
+    '''
     def __init__(self, **kwargs):
         Group.__init__(self)
         self.new_servers = kwargs['new_servers']
@@ -110,6 +137,15 @@ class Technology(Group):
 
 # collection of modeling tweaks
 class Tweaks(Group):
+    '''
+    These are tweaks around whether FRUs
+    can be repaired or redeployed, if older
+    FRU models or bespoke models can be used,
+    and whether to install a FRU ahead of
+    schedule to minimize FRU residuals at the
+    end of a contract.
+    These are specified per scenario.
+    '''
     def __init__(self, **kwargs):
         Group.__init__(self)
         self.repair = kwargs.get('repair', False)
@@ -124,6 +160,12 @@ class Tweaks(Group):
 
 # collection of database modeling thresholds
 class Thresholds(Group):
+    '''
+    These are system wide limits dictating when FRUs
+    can be pulled, repaired or refurbished.
+    They are set in the database and should not
+    change per scenario.
+    '''
     def __init__(self, thresholds):
         self.thresholds = thresholds
 
