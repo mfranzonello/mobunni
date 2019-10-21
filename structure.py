@@ -77,7 +77,7 @@ class SQLDB:
 
     # select the thresholds for FRU repairs and redeploys
     def get_thresholds(self):
-        sql = 'SELECT * from Threshold'
+        sql = 'SELECT item, threshold from Threshold'
         thresholds = read_sql(sql, self.connection, index_col='item').squeeze()
         return thresholds
 
@@ -165,6 +165,12 @@ class SQLDB:
         sql = 'SELECT rating FROM Module WHERE (model = "{}") and (mark = "{}") and (model_number = "{}")'.format(model, mark, model_number)
         rating = read_sql(sql, self.connection).iloc[0].squeeze()
         return rating
+
+    # select initial efficiency of power module
+    def get_module_efficiency(self, model, mark, model_number):
+        sql = 'SELECT pct FROM EfficiencyCurve WHERE (model = "{}") and (mark = "{}") and (model_number = "{}") and (month = 1)'.format(model, mark, model_number)
+        rating = read_sql(sql, self.connection).iloc[0].squeeze()
+        return efficiency
 
     # select enclosure compatible with energy server
     def get_enclosure_model_number(self, server_model):

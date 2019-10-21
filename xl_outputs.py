@@ -128,7 +128,6 @@ class Excelerator:
 
             chart_columns = chart.get('columns')
             _, column_indices = self.get_indices(sheetname, chart_columns)
-            #chart_zip = zip(column_indices, chart['colors'], chart['dashes'], chart['weights'])
 
             items = {'colors': 'color',
                      'dashes': 'dash',
@@ -139,7 +138,7 @@ class Excelerator:
             if chart_sheet_name not in self.charts:
                 # primary chart
                 offset = None if chart_sheet_name else [chart.get('header row', 0) + 1, max_columns + 1]
-                self.charts[chart_sheet_name] = {'sheetname': sheetname, 'columns': columns, 'rows': rows, 'header row': chart.get('header row'),
+                self.charts[chart_sheet_name] = {'sheetname': sheetname, 'columns': columns, 'rows': rows, 'header row': chart.get('header row', 0),
                                                  'type': chart.get('type'), 'subtype': chart.get('subtype'),
                                                  'offset': offset, 'chart sheet name': chart_sheet_name, 'constants': chart.get('constants'),
                                                  'y-axis': chart.get('y-axis'), 'y2-axis': chart.get('y2-axis'),
@@ -192,57 +191,84 @@ class Excelerator:
 
         if not (offset or chart_sheet_name):
             offset = [1, 1]
-       
+
         workbook = writer.book
-        worksheet = writer.sheets[chart_sheet_name]
 
         # create primary chart
-        added_chart = self.create_chart(workbook, chart)
-
-        # create constant line chart and combine
-        if chart.get('constants') is not None:
-            added_chart_1 = self.create_chart(workbook, chart, constant_lines=True)
-            added_chart.combine(added_chart_1)
+        added_chart = self.create_chart(workbook, chart)     
+        axes = {xy: chart.get('{}-axis'.format(xy)) for xy in ['y', 'y2', 'x', 'x2']}
 
         # create secondary chart and combine
         if secondary_chart is not None:
-            added_chart_2 = self.create_chart(workbook, chart, secondary=True)
+            added_chart_2 = self.create_chart(workbook, secondary_chart, secondary=True)
+
+            # set secondary axes
+            if axes['x2']: added_chart_2.set_x2_axis(axes['x2'])
+            if axes['y2']: added_chart_2.set_y2_axis(axes['y2'])
+
+            # combine charts
             added_chart.combine(added_chart_2)
                
+        # set primary axes
+        if axes['x']: added_chart.set_x_axis(axes['x'])
+        if axes['y']: added_chart.set_y_axis(axes['y'])
+
         # paste chart
+        if chart_sheet_name not in writer.sheets:
+            chartsheet = workbook.add_chartsheet(chart_sheet_name)
+        else:
+            chartsheet = writer.sheets[chart_sheet_name]
+
         if offset:
             # paste on same sheet as data
             insert_address = self.get_excel_address(offset[0], offset[1])
-            worksheet.insert_chart(insert_address, added_chart)
+            chartsheet.insert_chart(insert_address, added_chart)
         else:
             # paste on different sheet than data
-            chartsheet = workbook.add_chartsheet(chart_sheet_name)
             chartsheet.set_chart(added_chart)
 
     # create chart object
-    def create_chart(self, workbook, chart, constant_lines=False, secondary=False):
+    def create_chart(self, workbook, chart, secondary=False):
         sheetname = chart['sheetname']
-        columns = chart['columns'] if not constant_lines else chart['constants']
+        columns = chart['columns']
         rows = chart['rows']
-        axes = {xy: chart.get('{}-axis'.format(xy)) for xy in ['y', 'y2', 'x', 'x2']}
         
         chart_type = chart.get('type', 'line')
         chart_subtype = chart.get('subtype')
-        header_row = chart.get('header_row', 0)
+
+        header_row = chart.get('header row', 0)
         category_column = chart.get('category column', 0)
 
-        added_chart = workbook.add_chart({'type': chart_type})
+        chart_parameters = {'type': chart_type,
+                            }
+        if secondary:
+            chart_parameters.update({'subtype': chart_subtype,
+                                     })
+        added_chart = workbook.add_chart(chart_parameters)
 
         categories = [sheetname, header_row + 1, category_column, header_row + rows, category_column]
 
+        added_chart = self.create_series(added_chart, chart['columns'], sheetname, categories, category_column, rows, header_row, chart_type,
+                                         chart_subtype=chart_subtype, secondary=secondary)
+        if chart.get('constants') is not None:
+            added_chart = self.create_series(added_chart, chart['constants'], sheetname, categories, category_column, rows, header_row, chart_type,
+                                             constant_lines=True)
+
+        return added_chart
+
+    # create series for chart object
+    def create_series(self, added_chart, columns, sheetname, categories, category_column, rows, header_row, chart_type,
+                      chart_subtype=None, constant_lines=False, secondary=False):
         for column in columns:
             if constant_lines:
+                name = column['name']
                 values = '={' + ','.join([str(column['value'])] * (rows - header_row)) + '}'
             else:
+                name = [sheetname, header_row, column]
                 values = [sheetname, header_row + 1, column, header_row + rows, column]
 
-            series_parameters = {'name': [sheetname, header_row, column],
-                                 'categories': catergories,
+            series_parameters = {'name': name,
+                                 'categories': categories,
                                  'values': values,
                                  }                            
 
@@ -262,20 +288,9 @@ class Excelerator:
 
             if secondary:
                 # move to secondary axes
-                series_parameters.update({'{}2_axis'.format(xy): axes['{}2'.format(xy)] is not None for xy in ['x', 'y']})
+                series_parameters.update({'{}2_axis'.format(xy): True for xy in ['x', 'y']})
 
             added_chart.add_series(series_parameters)
-
-        # set axes
-        if not secondary:
-            # set primary axes
-            if axes['x']: added_chart.set_x_axis(axes['x'])
-            if axes['y']: added_chart.set_y_axis(axes['y'])
-
-        else:
-            # set secondary axes
-            if axes['x2']: added_chart.set_x2_axis(axes['x2'])
-            if axes['y2']: added_chart.set_y2_axis(axes['y2'])
 
         return added_chart
 
@@ -308,10 +323,10 @@ class ExcelePaint:
     date_values = ['date']
     quant_values = ['created FRU']
 
-    ranges = {'C': '#2E86C1', 'W': '#FC03D3', 'P': '#28B463'}
-    ranges_lite = {'C': '#85C1E9', 'W': '#FF69E6', 'P': '#82E0AA'}
+    ranges = {'C': '#2E86C1', 'W': '#C43F35', 'P': '#28B463'}
+    ranges_lite = {'C': '#85C1E9', 'W': '#FA9696', 'P': '#82E0AA'}
     
-    ranges_2 = {'created FRU': '#C43F35', 'deployed FRU': '#FFBE0D', 'stored FRU': '#702CE6'}
+    ranges_2 = {'created FRU': '#F5A142', 'deployed FRU': '#FFBE0D', 'stored FRU': '#702CE6'}
 
     bounds = {'_max': 'dash', '': 'solid', '_min': 'dash', '_25': 'solid', '_75': 'solid'}
     bounds_lite = {'_limit': 'round_dot'}
@@ -385,7 +400,6 @@ class ExcelePaint:
         # find cost table to use for bar graph
         cost_keys = list(cost_tables.keys())
         cost_table = cost_tables[cost_key][chart_columns_2].iloc[0:-2] ## -2 = -1 for totals row -1 for last year storage
-
         header_row_2 = sum(len(cost_tables[c_k]) + 2 for c_k in cost_keys[0:cost_keys.index(cost_key)])
 
         chart_splitter = 1 / min(l for l in [limits['{}{}'.format(r, v)] for v in ExcelePaint.percent_values for r in ranges] if l is not None) + 1
@@ -401,7 +415,8 @@ class ExcelePaint:
                         'major_gridlines': {'visible': True, 'line': {'color': '#F4F6F6'}}}
         chart_y2_axis = {'name': 'FRU replacement kW',
                          'max': ceil(cost_table.abs().sum(axis='columns').max() * chart_splitter / 100) * 100,
-                         'min': floor(cost_table.where(cost_table < 0).sum(axis='columns').min() / 100) * 100}
+                         'min': floor(cost_table.where(cost_table < 0).sum(axis='columns').min() / 100) * 100,
+                         }
         chart_x_axis = {'name': 'date', 'visible': True, 'major_unit': 1, 'major_unit_type': 'years'}
         chart_x2_axis = {'visible': True}
 

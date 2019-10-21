@@ -160,8 +160,11 @@ class ExcelSeer:
                     col_add = string.ascii_uppercase.index(col_str)
                     col += col_add * 10**i
                 row = int(row_str)-1
-
+                if (sheet_name[0] == "'") and (sheet_name[-1] == "'"):
+                    sheet_name = sheet_name[1:-1]
+                
                 self.data[(sheet_name, range_name.lower())] = workbook.sheet_by_name(sheet_name).cell(row, col).value
+
         return
 
 # read Excel data into SQL database
@@ -284,7 +287,8 @@ class ExcelInt:
                 'ceff_limit': self.floater, 'weff_limit': self.floater, 'peff_limit': self.floater, 'window': self.inter,
                 'start_date': self.xldate, 'contract_length': int,
                 'site_code': str,
-                'allow_repairs': bool, 'redeploy_level': self.inter, 'use_best_only': bool, 'allow_early_deploy': bool,
+                'allow_repairs': bool, 'allow_redeploy': bool, 'use_best_only': bool,
+                'allow_early_deploy': bool, 'eoc_replacements': bool,
                 }
 
         tables = ['NonReplace', 'NewServers', 'Roadmap']
@@ -295,7 +299,7 @@ class ExcelInt:
         [ctmo_limit, wtmo_limit, ptmo_limit, ceff_limit, weff_limit, peff_limit, window,
          start_date, contract_length,
          site_code,
-         repair, junk_level, best, early_deploy,
+         repair, redeploy, best, early_deploy, eoc_deploy,
          ] = values_keys
 
         [non_replace, servers, roadmap] = values_tables
@@ -318,9 +322,9 @@ class ExcelInt:
         if repair is None:
             repair = False
 
-        return scenario_name, limits, start_date, contract_length,  \
-            non_replace, repair, junk_level, best, early_deploy, \
-            site_code, servers, roadmap ##start_month, target_size,
+        return scenario_name, limits, start_date, contract_length, non_replace, \
+            site_code, servers, roadmap, \
+            repair, redeploy, best, early_deploy, eoc_deploy
 
     # total number of scenarios to explore
     def count_scenarios(self):

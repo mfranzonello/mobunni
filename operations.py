@@ -141,11 +141,7 @@ class Shop:
         self.log_book = LogBook()
 
         self.thresholds = thresholds
-
-        self.junk_level = tweaks.junk_level
-        self.best = tweaks.best
-        self.repair = tweaks.repair
-        self.early_deploy = tweaks.early_deploy
+        self.tweaks = tweaks
 
         self.storage = []
         self.deployable = []
@@ -208,7 +204,7 @@ class Shop:
                       'stored FRU', 'from', site_number, server_number, enclosure_number, cost, reason=reason)
 
         # repairing FRU moves power curve up
-        if repair:
+        if self.tweaks['repair'] and repair:
             self.storage[-1].repair()
 
             cost = self.get_cost('repair fru', fru, operating_time=fru.get_month(), power=fru.get_power())
@@ -262,13 +258,17 @@ class Shop:
     ##    return fru
 
     # find FRU in deployable or junk that best fits requirements
-    def find_fru(self, allowed_models, power_needed=0, energy_needed=0, time_needed=0, max_power=None, junked=False):
+    def find_fru(self, allowed_models, power_needed=0, energy_needed=0, efficiency_needed=0, 
+                 time_needed=0, max_power=None, junked=False):
         powers = self.list_powers(allowed_models, junked=junked) - power_needed
         energies = self.list_energies(allowed_models, time_needed, junked=junked) - energy_needed
+        efficiencies = self.list_efficiencies(allowed_models, junked=junked) - efficiency_needed
+
         found = \
             (powers.where(powers > 0) if power_needed > 0 else 1) * \
             (powers.where(powers < (max_power - power_needed)) if max_power is not None else 1) * \
-            (energies.where(energies > 0)/time_needed if energy_needed > 0 else 1)
+            (energies.where(energies > 0)/time_needed if energy_needed > 0 else 1) * \
+            (efficiencies.where(energies > 0) if efficiency_needed > 0 else 1)
 
         queue = found.idxmin() if (type(found) is Series) and len(found) else nan
 
@@ -302,6 +302,18 @@ class Shop:
 
         energies = Series(energies_list)
         return energies
+
+    # get efficiency value of each fru in storage
+    def list_efficiencies(self, allowed_models, junked=False):
+        if junked:
+            efficiencies_list = self.flatten_list([self.power_modules.get_efficiencies(fru.model, self.date) \
+                if fru.model in allowed_models.to_list() else [0] for fru in self.junk])
+        else:
+            efficiencies_list = [fru.get_efficiency() * fru.get_power() if fru.model in allowed_models.to_list() else 0 \
+                for fru in self.deployable]
+
+        efficiencies = Series(efficiencies_list)
+        return efficiencies
 
     # return queue of queues
     def get_queues(self, junked=False):
@@ -341,25 +353,27 @@ class Shop:
 
     # use a stored FRU or create a new one for power and energy requirements
     def get_best_fit_fru(self, server_model, install_date, site_number, server_number, enclosure_number,
-                         power_needed=0, energy_needed=0, time_needed=0, max_power=None, initial=False, reason=None):
+                         power_needed=0, energy_needed=0, efficiency_needed=0, time_needed=0, max_power=None, initial=False, reason=None):
         allowed_modules = self.energy_servers.get_compatible_modules(server_model)
        
-        junked = {'deployable': False} ##, 'junked': True}
+        storage_location = {'deployable': False} ##, 'junked': True}
         queues = {}
 
-        for location in junked:
-            powers = self.list_powers(allowed_modules, junked[location])
-            energies = self.list_energies(allowed_modules, time_needed, junked[location])
-            queues[location] = self.find_fru(allowed_modules, junked=junked[location],
-                                             power_needed=power_needed, energy_needed=energy_needed, time_needed=time_needed,
-                                             max_power=max_power)
+        for location in storage_location:
+            powers = self.list_powers(allowed_modules, storage_location[location])
+            energies = self.list_energies(allowed_modules, time_needed, storage_location[location])
+            efficiencies = self.list_efficiencies(allowed_modules, storage_location[location])
+
+            queues[location] = self.find_fru(allowed_modules, junked=storage_location[location],
+                                             power_needed=power_needed, energy_needed=energy_needed, efficiency_needed=efficiency_needed,
+                                             time_needed=time_needed, max_power=max_power)
         
-        if (not initial) and len(self.deployable) and (not isna(queues['deployable'])):
+        if self.tweaks['redeploy'] and (not initial) and len(self.deployable) and (not isna(queues['deployable'])):
             # there is a FRU available to deploy
             queue = queues['deployable']
             fru = self.deploy_fru(queue, site_number, server_number, enclosure_number, reason=reason)
 
-        ##elif (not initial) and len(self.junk) and (not isna(queues['deployable'])):
+        ##elif self.tweaks['redeploy'] and (not initial) and len(self.junk) and (not isna(queues['deployable'])):
         ##    # there is a FRU available to overhaul
         ##    queue = self.list_queues(junked=True)[queues['junked']]
         ##    fru = self.overhaul_fru(queue, mark, site_number, server_number, enclosure_nunber, reason=reason)
@@ -372,11 +386,11 @@ class Shop:
                 wait_period = relativedelta(years=floor(self.thresholds['fru availability']),
                                             months=round(12 * (self.thresholds['fru availability'] - floor(self.thresholds['fru availability']))))
 
-            if self.best:
+            if self.tweaks['best']:
                 module = self.power_modules.get_model(install_date, wait_period=wait_period,
                                                       power_needed=power_needed, max_power=max_power,
                                                       energy_needed=energy_needed, time_needed=time_needed,
-                                                      best=self.best, server_model=server_model, roadmap=self.roadmap)
+                                                      best=self.tweaks['best'], server_model=server_model, roadmap=self.roadmap)
 
             else:
                 module = self.power_modules.get_model(install_date, wait_period=wait_period,
@@ -507,11 +521,11 @@ class Shop:
             fru.store(self.thresholds['deploy months'])
 
             # check if storage killed FRU
-            if fru.get_power() < self.junk_level:
+            if fru.get_power() < self.thresholds['junk level']:
                 self.junk.append(fru)
                
                 self.transact(fru.serial, fru.model, fru.mark, fru.get_power(), fru.get_efficiency(),
-                              'junked FRU', 'in storage', None, None, None, None, reason='power below {}kw'.format(self.junk_level))
+                              'junked FRU', 'in storage', None, None, None, None, reason='power below {}kw'.format(self.thresholds['junk level']))
 
             else:
                 self.deployable.append(fru)

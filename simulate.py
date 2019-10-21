@@ -218,10 +218,7 @@ class Simulation:
     # average the run performance
     def get_site_performance(self):
         performance = concat(self.site_performance)
-        drops = ['site', 'year']
-        if not self.scenario.windowed:
-            drops.extend(['WTMO', 'Weff'])
-        performance_gb = performance.drop(drops, axis='columns').groupby(['date'])
+        performance_gb = performance.drop(['site', 'year'], axis='columns').groupby(['date'])
 
         performances = {'min': performance_gb.min(),
                         '25': performance_gb.quantile(.25),

@@ -100,7 +100,7 @@ class APC:
         fru_performance = concat(fru_values.values(), axis=1).resample('M').mean()
 
         # get start date based on increase in TMO from a FRU replacement
-        fru_reset = fru_performance.query('~kw.isna()').query('kw.diff() > @tmo_threshold')
+        fru_reset = fru_performance.dropna(subset=['kw']).diff().query('kw > @tmo_threshold')
         fru_install_date = fru_performance.index.min() if fru_reset.empty else fru_reset.index.max()
         fru_current_date = fru_performance.index.max()
         fru_operating_time = relativedelta(fru_performance.index[-1], fru_install_date)

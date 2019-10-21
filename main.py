@@ -15,6 +15,8 @@ from simulate import Scenario, Simulation
 structure_db = 'sqlite' # remotemysql, mysql or sqlite
 open_results = True # open Excel file when done running
 
+print('Bloom Service Cost Model')
+
 # ask for project
 def get_project() -> [Project, ExcelInt]:
     '''
@@ -34,7 +36,7 @@ def get_structure(structure_db: str) -> [SQLDB, Thresholds]:
     power and efficiency curves, compatibility, etc, and special threshold
     values.
     '''
-    print('Reading structure database')
+    print('Reading structure database via {}'.format(structure_db))
     sql_db = SQLDB(structure_db)
     thresholds = Thresholds(sql_db.get_thresholds())
     return sql_db, thresholds
@@ -60,9 +62,9 @@ def get_scenario(excel_int: ExcelInt, scenario_number: int, apc: APC):
     It downloads from APC-TMO if required if there is a network connection.
     '''
     print('Getting scenario {} details'.format(scenario_number+1))
-    scenario_name, limits, start_date, contract_length, \
-        non_replace, repair, junk_level, best, early_deploy, \
-        site_code, servers, roadmap = excel_int.get_scenario(scenario_number)
+    scenario_name, limits, start_date, contract_length, non_replace, \
+        site_code, servers, roadmap, \
+        repair, redeploy, best, early_deploy, eoc_deploy = excel_int.get_scenario(scenario_number)
 
     existing_servers = ExistingServers(apc.get_site_performance(site_code))
     new_servers = NewServers(servers)
@@ -79,7 +81,7 @@ def get_scenario(excel_int: ExcelInt, scenario_number: int, apc: APC):
                               start_month=start_month, non_replace=non_replace, limits=limits)
 
     technology = Technology(new_servers=new_servers, existing_servers=existing_servers, roadmap=roadmap, site_code=site_code)
-    tweaks = Tweaks(repair=repair, junk_level=junk_level, best=best, early_deploy=early_deploy)
+    tweaks = Tweaks(repair=repair, redeploy=redeploy, best=best, early_deploy=early_deploy, eoc_deploy=eoc_deploy)
 
     scenario = Scenario(scenario_number, scenario_name,
                         commitments=commitments, technology=technology, tweaks=tweaks)

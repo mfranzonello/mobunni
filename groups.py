@@ -24,6 +24,10 @@ class Group:
 
         return inputs
 
+    def __getitem__(self, item: str):
+        attribute = getattr(self, item.replace(' ', '_')) # change spaces to underscores
+        return attribute
+
 # common details across project
 class Details(Group):
     '''
@@ -151,15 +155,17 @@ class Tweaks(Group):
     '''
     def __init__(self, **kwargs):
         Group.__init__(self)
-        self.repair = kwargs.get('repair', False)
-        self.junk_level = kwargs.get('junk_level')
         self.best = kwargs.get('best', True)
+        self.repair = kwargs.get('repair', False)
+        self.redeploy = kwargs.get('redeploy')
         self.early_deploy = kwargs.get('early_deploy')
+        self.eoc_deploy = kwargs.get('eoc_deploy')
 
         self.data = [['repair threshold', self.repair],
-                     ['redeploy level', self.junk_level],
                      ['use best FRU available', self.best],
-                     ['allow early deploy', self.early_deploy]]
+                     ['allow redeploys', self.redeploy],
+                     ['allow early deploys', self.early_deploy],
+                     ['allow end-of-contract deploys', self.eoc_deploy]]
 
 # collection of database modeling thresholds
 class Thresholds(Group):
@@ -175,7 +181,8 @@ class Thresholds(Group):
         self.data = [['min power degradation when FRUs can be pulled', self.thresholds.get('degraded')],
                      ['min efficiency degradation when FRUs can be repaired', self.thresholds.get('inefficient')],
                      ['min deviation when FRUs can be repaired', self.thresholds.get('deviated')],
-                     ['years before end of contract cannot deploy', self.thresholds.get('no deploy')],
+                     ['power level where a FRU cannot be repaired', self.thresholds.get('junk level')],
+                     ['years before end of contract cannot deploy', self.thresholds.get('eoc deploy')],
                      ['early deploy target TMO padding', self.thresholds.get('tmo pad')],
                      ['early deploy target efficiency padding', self.thresholds.get('eff pad')],
                      ['process time for FRU redeployment', self.thresholds.get('deploy months')],

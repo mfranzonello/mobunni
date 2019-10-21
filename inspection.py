@@ -220,35 +220,35 @@ class Inspector:
         commitments, fails = site.store_performance()
 
         # check if FRUs can be replaced this year
-        replaceable = site.contract.is_replaceable_time(month=site.get_month(), year=site.get_year())
+        replaceable = site.contract.is_replaceable_time(month=site.get_month(), year=site.get_year(), years_remaining=site.get_years_remaining(),
+                                                        eoc={'allowed': site.shop.tweaks['eoc_deploy'], 'years': site.shop.thresholds['eoc deploy']})
 
-        early_replaceable = site.get_years_remaining() > site.shop.thresholds['no deploy']
-        last_replaceable = site.get_months_remaining() == site.shop.thresholds['no deploy']*12 + 1
-        if replaceable and early_replaceable:
+        if replaceable:
+            repairable = site.shop.tweaks['repair']
+            early_replaceable = site.shop.tweaks['early_deploy'] and (site.get_years_remaining() > ~site.shop.tweaks['eoc_deploy'] * site.shop.thresholds['eoc deploy'])
+            last_replaceable = site.shop.tweaks['early_deploy'] and (site.get_months_remaining() == ~site.shop.tweaks['eoc_deploy'] * (site.shop.thresholds['eoc deploy']*12 + 1)) ## THINK ABOUT THIS
+            fail_replaceable = fails['TMO'] or fails['efficiency']
+
             # check if FRUs need to be repaired
-            if site.shop.repair:
-                commitments, fails = site.Inspector.check_repairs(site)
+            if repairable:
+                commitments, fails = Inspector.check_repairs(site)
 
             # check for early deploy opportunity
-            if site.shop.early_deploy:
+            if early_replaceable:
                 commitments, fails = Inspector.check_deploys(site, commitments, cumulative=early_replaceable, periodic=last_replaceable)
 
             # check for replaceable FRU
-            if fails['TMO'] or fails['efficiency']:
+            if fail_replaceable:
                 server_p, enclosure_p = Inspector.get_worst_fru(site, 'power')
                 server_e, enclosure_e = Inspector.get_worst_fru(site, 'efficiency')
 
-            else:
-                server_p = None
-                server_e = None
+                while (Inspector.check_exists(server_p) and fails['TMO']) or (Inspector.check_exists(server_e) and fails['efficiency']):
+                    # replace worst FRUs until TMO threshold hit or exhaustion
+                    if Inspector.check_exists(server_p, enclosure_p) and fails['TMO']:
+                        commitments, fails, server_p, enclosure_p, server_e, enclosure_e = Inspector.check_tmo(site, commitments, fails, server_p, enclosure_p)
 
-            while (Inspector.check_exists(server_p) and fails['TMO']) or (Inspector.check_exists(server_e) and fails['efficiency']):
-                # replace worst FRUs until TMO threshold hit or exhaustion
-                if Inspector.check_exists(server_p, enclosure_p) and fails['TMO']:
-                    commitments, fails, server_p, enclosure_p, server_e, enclosure_e = Inspector.check_tmo(site, commitments, fails, server_p, enclosure_p)
-
-                if Inspector.check_exists(server_e, enclosure_e) and fails['efficiency']:
-                    commitments, fails, server_p, enclosure_p, server_e, enclosure_e = Inspector.check_efficiency(site, commitments, fails, server_e, enclosure_e)
+                    if Inspector.check_exists(server_e, enclosure_e) and fails['efficiency']:
+                        commitments, fails, server_p, enclosure_p, server_e, enclosure_e = Inspector.check_efficiency(site, commitments, fails, server_e, enclosure_e)
 
         return
         
@@ -403,14 +403,21 @@ class Inspector:
 
     # look for FRUs replacements to meet efficiency commitment
     def check_efficiency(site, commitments, fails, server_e, enclosure_e):
-        # match power, energy and remaining life of replacing FRU
+        # match power, energy and efficiency of replacing FRU
+        efficiency_pulled = (site.servers[server_e].enclosures[enclosure_e].fru.get_efficiency() * \
+            site.servers[server_e].enclosures[enclosure_e].fru.get_power()) \
+            if site.servers[server_e].enclosures[enclosure_e].is_filled() else 0
+
         if fails['Ceff']:
+            efficiency_needed = ((site.limits['Ceff'] - commitments['Ceff']) * site.system_size + efficiency_pulled) * site.get_month()
             reason_fail = 'Ceff'
 
         elif fails['Weff']:
+            efficiency_needed = ((site.limits['Weff'] - commitments['Weff']) * site.system_size + efficiency_pulled) * min(site.get_month(), site.limits['window'])
             reason_fail = 'Weff'
 
         elif fails['Peff']:
+            efficiency_needed = (site.limits['Peff'] - commitments['Peff']) * site.system_size + efficiency_pulled
             reason_fail = 'Peff'
 
         reason = '{} {:0.02%} below limit {:0.02%}'.format(reason_fail, commitments[reason_fail], site.limits[reason_fail])
@@ -422,17 +429,18 @@ class Inspector:
 
             if replacing_fru.is_dead():
                 # FRU is already dead
-                # replace with original FRU rating
                 new_fru = site.shop.get_best_fit_fru(server.model, site.get_date(), site.number, server_e, enclosure_e,
-                                                     power_needed=replacing_fru.rating, reason=reason)
+                                                     efficiency_needed=efficiency_needed, reason=reason)
             else:
                 # FRU has life left
                 new_fru = site.shop.get_best_fit_fru(server.model, site.get_date(), site.number, server_e, enclosure_e,
+                                                     efficiency_needed=efficiency_needed,
                                                      power_needed=replacing_fru.get_power(), energy_needed=replacing_fru.get_energy(),
                                                      time_needed=replacing_fru.get_expected_life(), reason=reason)
             old_fru = site.replace_fru(server_e, enclosure_e, new_fru)
             # FRU replaced an existing module
             site.shop.store_fru(old_fru, site.number, server_e, enclosure_e, reason=reason)
+
         else:
             # put in a brand new FRU
             new_fru = site.shop.get_best_fit_fru(server.model, site.get_date(), site.number, server_e, enclosure_e, initial=True, reason=reason)

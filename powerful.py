@@ -250,6 +250,19 @@ class PowerModules(DataSheets):
         energies = [self.get_energy(model, mark, model_number, time_needed) for model_number in model_numbers]
         return energies
 
+    # return initial efficiency contribution of a given module
+    def get_efficiency(self, model, mark, model_number):
+        efficiency = self.sql_db.get_module_efficiency(model, mark, model_number)
+        rating = self.sql_db.get_module_rating(model, mark, model_number)
+        efficiency = efficiency * rating
+        return efficienc
+
+    # return initial efficiency contribution of all model versions of a module
+    def get_energies(self, model, mark, install_date, time_needed):
+        model_numbers = self.sql_db.get_module_model_numbers(model, mark)
+        efficiencies = [self.get_efficiencies(model, mark, model_number) for model_number in model_numbers]
+        return efficiencies
+
 # details of energy enclosures
 class HotBoxes(DataSheets):
     def __init__(self, sql_db):

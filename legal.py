@@ -27,6 +27,7 @@ class Contract:
         self.start_date = start_date
         self.start_month = start_month
         self.non_replace = non_replace
+
         self.limits = limits
         self.windowed = (limits['WTMO'] or limits['Weff']) and limits['window']
 
@@ -43,7 +44,8 @@ class Contract:
 
     # FRUs can be installed during given year of contract
     def is_replaceable_time(self, **kwargs):
-        replaceable = (kwargs.get('month', 0) >= self.start_month) and \
-                      not ((self.non_replace['start'] <= kwargs.get('year')) & (self.non_replace['end'] >= kwargs.get('year'))).any()
+        replaceable = all([kwargs.get('month', 0) >= self.start_month,
+                           kwargs['eoc']['allowed'] or (kwargs.get('years_remaining') >= kwargs['eoc']['years']),
+                           not ((self.non_replace['start'] <= kwargs.get('year')) & (self.non_replace['end'] >= kwargs.get('year'))).any()])
 
         return replaceable
