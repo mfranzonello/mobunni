@@ -1,13 +1,13 @@
 # project selection and functions to read and write database and Excel data
 
-import os
-
+# add-in imports
 from pandas import DataFrame, Timestamp, read_sql, to_numeric, merge
 from numpy import nan
 from sqlalchemy import create_engine
+from tkinter import Tk, filedialog
 
+# self-defined imports
 from urls import URL
-from debugging import StopWatch
 
 # ask user for project selection
 class Project:
@@ -18,39 +18,37 @@ class Project:
     '''
     folder = r'projects' # input files repository
     start = 'bpm_inputs_' # starting name of input files
-    end = '.xlsx' # input files extension
+    end = 'xlsx' # input files extension
 
     def __init__(self):
-        self.projects = [file[len(Project.start):-len(Project.end)] \
-            for file in os.listdir(Project.folder) if (file[:len(Project.start)] == Project.start) and (file[-len(Project.end):] == Project.end)]
         self.name = None
         self.path = None
 
     # prompt user for project selection
     def ask_project(self):
         '''
+        This function uses a dialog box to ask the user for what file to run.
         '''
-        if len(self.projects):
-            print('Available projects:')
+        print('Asking for project')
+        root = Tk()
+        root.withdraw()
+        self.path = filedialog.askopenfilename(initialdir=Project.folder, title='Select scenarios file',
+                                               filetypes=[('BPM inputs', '{start}*.{extension}'.format(start=Project.start, extension=Project.end)),
+                                                          ('all files', '*.*')])
+        if not self.path:
+            # no project selected, so quit
+            print('Simulator canceled!')
+            quit()
 
-            while self.name is None:
-                count = 0
-                for project in self.projects:
-                    count += 1
-                    print('[{}]: {}'.format(count, project))
-                
-                project_num = input('Select project 1-{}: '.format(len(self.projects)))
-                if project_num.isdigit() and (int(project_num)-1 in range(len(self.projects))):
-                    self.name = self.projects[int(project_num)-1]
-                    print('Selected {}'.format(self.name))
-                else:
-                    print('Not a valid option!')
-
-            self.path = r'{}\{}{}{}'.format(Project.folder, Project.start, self.name, Project.end)
+        elif Project.start in self.path:
+            # valid project
+            self.name = self.path[self.path.index(Project.start) + len(Project.start):]
+            print('Selected {}'.format(self.name))
 
         else:
-            print('No projects available!')
-            quit()
+            # invalid project
+            print('Invalid project file!')
+            self.ask_project()
 
 # read in standard assumptions from SQL
 class SQLDB:

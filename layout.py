@@ -1,11 +1,15 @@
 # API connections
 
+# built-in imports
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
 from urllib.request import urlopen
 from urllib.error import URLError
+
+# add-on imports
 from pandas import read_json, isna, concat, DataFrame, to_datetime
 
+# self-defined imports
 from urls import URL
 
 # connect to internal Bloom API for site, server and power module performance of fleet

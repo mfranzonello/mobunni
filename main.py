@@ -1,19 +1,19 @@
-# Bloom Service Cost Modeling 
-
 # main script to read inputs, set up structure, run simulation and print results
 
+# built-in imports
 from math import floor
 
+# add-on imports
 from structure import Project, SQLDB
 from layout import APC, ExistingServers, NewServers
 from xl_inputs import ExcelInt
 from xl_outputs import Excelerator, ExcelePaint
 from groups import Details, Commitments, Technology, Tweaks, Thresholds
 from simulate import Scenario, Simulation
-from debugging import StopWatch, open_results
 
 # inputs
-structure_db = 'sqlite' #'remotemysql' # remotemysql, mysql or sqlite
+structure_db = 'sqlite' # remotemysql, mysql or sqlite
+open_results = True # open Excel file when done running
 
 # ask for project
 def get_project() -> [Project, ExcelInt]:
@@ -140,6 +140,5 @@ def run_model():
     apc = APC()
 
     run_scenarios(project, excel_int, details, sql_db, thresholds, apc)
-    StopWatch.show_results()
 
 run_model()

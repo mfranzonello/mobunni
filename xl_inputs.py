@@ -1,11 +1,13 @@
 # project selection and functions to read and write database and Excel data
 
+# built-in imports
 import string
 import zipfile
 import fnmatch
 import io
 from xml.etree import ElementTree
 
+# add-on imports
 from pandas import ExcelFile, to_numeric
 import xlrd
 import requests

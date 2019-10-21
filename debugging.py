@@ -1,6 +1,5 @@
+# buil\td-in imports
 from time import process_time
-
-open_results = True
 
 # timer for performance evalution
 class StopWatch:

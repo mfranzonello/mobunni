@@ -1,9 +1,8 @@
 # definitions for power and efficiency curves, power modules, hot boxes and energy servers
 
+# add-on imports
 from pandas import DataFrame, Series, concat
 from numpy import random as nprandom
-
-from debugging import StopWatch
 
 class Curves:
     def __init__(self, curves):

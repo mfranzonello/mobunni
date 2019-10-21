@@ -1,13 +1,16 @@
 # central warehouse for creating, storing and deploying components and fleet to manage all sites
 
+# built-in imports
 from dateutil.relativedelta import relativedelta
 from datetime import date
 from random import randrange
 from math import floor
 
+# add-on imports
 from pandas import DataFrame, Series, concat, to_datetime, isna
 from numpy import nan
 
+# self-defined imports
 from powerful import PowerModules, HotBoxes, EnergyServers
 from components import FRU, Enclosure, Server
 from finances import Bank

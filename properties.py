@@ -1,13 +1,15 @@
 # physical sites were energy servers are installed
 
+# built-in imports
 from dateutil.relativedelta import relativedelta
 from math import ceil, floor
 
+# add-on imports
 from pandas import DataFrame, Series, isnull
 from numpy import nan
 
+# self-defined imports
 from inspection import Monitor, Inspector
-from debugging import StopWatch
 
 # group of energy servers
 class Site:

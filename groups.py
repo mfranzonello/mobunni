@@ -1,7 +1,9 @@
 # collections of inputs to simplify values being passed
 
+# built-in imports
 from datetime import date
 
+# add-on imports
 from pandas import DataFrame
 
 # generic collection

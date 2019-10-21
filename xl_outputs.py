@@ -1,10 +1,12 @@
 # project selection and functions to read and write database and Excel data
 
+# built-in imports
 import os
 import getpass
 import string
 from math import floor, ceil
 
+# add-on imports
 from pandas import ExcelWriter
 
 # stores dataframe results and prints to multiple tabs of Excel spreadhseet

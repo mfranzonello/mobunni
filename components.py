@@ -1,9 +1,8 @@
 # physical field replaceable unit power modules (FRUs) and energy servers (with enclosure cabinets)
 
+# add-on imports
 from pandas import concat
 from dateutil.relativedelta import relativedelta
-
-from debugging import StopWatch
 
 class Component:
     '''

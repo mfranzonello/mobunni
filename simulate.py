@@ -1,15 +1,17 @@
 # creating and managing a fleet over time to optimize servicing costs
 
+# built-in imports
 from datetime import date
 from dateutil.relativedelta import relativedelta
 
+# add-on imports
 from pandas import concat
 
+# self-defined imports
 from properties import Site
 from operations import Shop, Fleet
 from legal import Portfolio
 from finances import Cash
-from debugging import StopWatch
 
 # details specific to scenario
 class Scenario:

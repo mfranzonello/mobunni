@@ -1,9 +1,8 @@
 # tools to record and check if sites are performing to contract specifications
 
+# add-on imports
 from pandas import DataFrame, Series, date_range
 from numpy import nan
-
-from debugging import StopWatch
 
 # performance, power and efficiency of a site
 class Monitor:
@@ -290,12 +289,9 @@ class Inspector:
         if cumulative:
             # estimate final CTMO if FRUs degrade as expected and add FRUs if needed, with padding
 
-            ##StopWatch.timer('get expected CTMO')
             expected_ctmo = (site.get_energy_produced() + site.get_energy_remaining()) / (site.contract.length * 12) / site.system_size
             server_dc, enclosure_dc = Inspector.get_worst_fru(site, 'energy')
             
-            ##StopWatch.timer('get expected CTMO')
-
             while installable and \
                 Inspector.check_fail(site, expected_ctmo, site.limits['CTMO'], pad=site.shop.thresholds['tmo pad']) and \
                 Inspector.check_exists(server_dc, enclosure_dc):
@@ -307,11 +303,9 @@ class Inspector:
                 energy_pulled = site.servers[server_dc].enclosures[enclosure_dc].get_energy(months=lookahead)
                 energy_needed = additional_energy - energy_pulled
            
-                StopWatch.timer('get best fit FRU [early deploy]')
                 reason = 'early deploy: expected CTMO {:0.02%} below target {:0.02%}'.format(expected_ctmo, site.limits['CTMO'] + site.shop.thresholds['tmo pad'])
                 new_fru = site.shop.get_best_fit_fru(site.servers[server_dc].model, site.get_date(), site.number, server_dc, enclosure_dc,
                                                      energy_needed=energy_needed, time_needed=lookahead, max_power=max_power, reason=reason)
-                StopWatch.timer('get best fit FRU [early deploy]')
 
                 site.replace_and_balance(server_dc, enclosure_dc, new_fru, reason=reason)
                 expected_ctmo = (site.get_energy_produced() + site.get_energy_remaining()) / (site.contract.length * 12) / site.system_size
