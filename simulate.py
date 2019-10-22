@@ -41,10 +41,16 @@ class Scenario:
         
         return inputs
 
-    def get_years(self):
-        start = self.commitments.start_date.year
-        end = start + self.commitments.length
+    def get_years(self, cash_flow=False):
+        if cash_flow:
+            start, end = self.commitments.get_cash_flow_dates()
+
+        else:
+            start = self.commitments.start_date.year
+            end = start + self.commitments.length
+
         years = list(range(start, end + 1))
+
         return years
 
 # sites installed over phases and run for full contracts
@@ -281,7 +287,7 @@ class Simulation:
         return transaction_sample
 
     def get_cash_flow(self, cost_tables):
-        cash_flow = self.cash.generate_cash_flow(cost_tables, self.size)
+        cash_flow = self.cash.generate_cash_flow(cost_tables, self.size, self.scenario.get_years(cash_flow=True))
         return cash_flow
 
     # summarize results of all simulations

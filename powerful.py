@@ -16,6 +16,8 @@ class PowerCurves(Curves):
         
         self.ideal = max(self.percentiles)
         self.worst = min(self.percentiles)
+        self.extrema = {'ideal': max(self.percentiles),
+                        'worst': min(self.percentiles)}
 
         self.probabilities = self.get_probabilities(self.percentiles)
 
@@ -33,51 +35,61 @@ class PowerCurves(Curves):
 
         return probabilities
 
+    # checks if allowed parameter is an extrema
+    def is_extrema(self, allowed):
+        extrema = (type(allowed) is str) and (allowed in self.extrema)
+        return extrema
+
     # return range of curves probable based on current observation
-    def get_allowed_curves(self, allowed=[0, 1], fit=None):
+    def get_allowed_curves(self, allowed=[0, 1], fit=None, stack_reducer=1):
         if fit is None:
             # new FRU
-            if allowed == 'ideal':
-                allowed_curves = self.curves[[self.ideal]]
-            elif allowed == 'worst':
-                allowed_curves = self.curves[[self.worst]]
+            
+            if self.is_extrema(allowed):
+                allowed_curves = self.curves[[self.extrema[allowed]]]
             else:
                 allowed_curves = self.curves[[percentile for percentile in self.percentiles \
                     if (percentile >= allowed[0]) & (percentile <= allowed[-1])]]
 
+            allowed_curves = allowed_curves.mul(stack_reducer)
+
         else:
             # FRU has already been in the field, find least error
             max_operating_time = min(len(self.curves)-1, fit['operating time'])
-            if ('performance' in fit) and ('operating time' in fit):
-                # pulled from API
-                to_fit = fit['performance'].iloc[len(fit['performance'])-fit['operating time']:, :].reset_index()['kw']
+            ##if ('performance' in fit) and ('operating time' in fit):
+            # pulled from API
+            to_fit = fit['performance'].iloc[len(fit['performance'])-fit['operating time']:, :].reset_index()['kw']
 
-                errors = self.curves.loc[0:len(fit)-1, :].T.sub(to_fit).T.pow(2).sum()
+            errors = self.curves.mul(stack_reducer).loc[0:len(fit)-1, :].T.sub(to_fit).T.pow(2).sum()
 
+            if self.is_extrema(allowed):
+                filtered_curves = self.extrema['allowed']
+
+            else:
                 filtered_curves = self.curves.loc[:, errors[errors == errors.min()].index.to_list()].columns
 
-                allowed_curves = DataFrame(data=[fit['performance']['kw'].to_list() + self.curves.loc[max_operating_time:, c].to_list() for c in filtered_curves],
-                                           index=filtered_curves).T
+            allowed_curves = DataFrame(data=[fit['performance']['kw'].to_list() + self.curves.loc[max_operating_time:, c].to_list() for c in filtered_curves],
+                                        index=filtered_curves).T
 
-            elif ('operating time' in fit) and ('current power' in fit):
-                # blind to starting curve
-                expected_range = self.curves.loc[max_operating_time]
-                observed_power = fit['current power']
+            ##elif ('operating time' in fit) and ('current power' in fit):
+            ##    # blind to starting curve
+            ##    expected_range = self.curves.mul(stack_reducer).loc[max_operating_time]
+            ##    observed_power = fit['current power']
 
-                if observed_power > expected_range.max():
-                    # operating better than expected, so choose ideal curve
-                    allowed_curves = self.get_allowed_curves(allowed='ideal').copy()
+            ##    if observed_power > expected_range.max():
+            ##        # operating better than expected, so choose ideal curve
+            ##        allowed_curves = self.get_allowed_curves(allowed='ideal').copy()
 
-                elif observed_power < expected_range.min():
-                    # operating worse than expected, so choose worst curve and scale down
-                    allowed_curves = self.get_allowed_curves(allowed='worst').copy()
-                    allowed_curves.loc[0:, :] *= (observed_power / expected_range.min())
+            ##    elif observed_power < expected_range.min():
+            ##        # operating worse than expected, so choose worst curve and scale down
+            ##        allowed_curves = self.get_allowed_curves(allowed='worst').copy()
+            ##        allowed_curves.loc[0:, :] *= (observed_power / expected_range.min())
 
-                else:
-                    # operating in expected range, so choose from range of possibilities
-                    allowed_curves = self.curves[\
-                        ((self.curves.loc[max_operating_time] >= fit['current power']) & \
-                         (self.curves.loc[max_operating_time] <= fit['current power'])).index]
+            ##    else:
+            ##        # operating in expected range, so choose from range of possibilities
+            ##        allowed_curves = self.curves[\
+            ##            ((self.curves.loc[max_operating_time] >= fit['current power']) & \
+            ##             (self.curves.loc[max_operating_time] <= fit['current power'])).index]
         
         return allowed_curves
         
@@ -89,13 +101,13 @@ class PowerCurves(Curves):
         return probabilities_normalized
 
     # pick power curve for power module
-    def pick_curve(self, allowed=[0, 1], fit=None):
+    def pick_curve(self, allowed=[0, 1], fit=None, stack_reducer=1):
         allowed_curves = self.get_allowed_curves(allowed, fit)
 
         probabilities_normalized = self.normalize_probabilties(allowed_curves.columns)
         chosen_percentile = nprandom.choice(allowed_curves.columns.to_list(), p=probabilities_normalized)
         
-        curve = allowed_curves[chosen_percentile]
+        curve = allowed_curves[chosen_percentile].mul(stack_reducer)
         
         # remove months where power is gone
         curve = curve[curve != 0].dropna()
@@ -103,25 +115,24 @@ class PowerCurves(Curves):
         return curve
 
     # get expected power curve of a power module
-    def get_expected_curve(self, operating_time=0, observed_power=0):
-        if operating_time == 0:
-            fit = None
-        else:
-            fit = {'operating time': operating_time, 'current power': observed_power}
-
-        allowed_curves = self.get_allowed_curves(fit=fit)
+    def get_expected_curve(self, fit=None, stack_reducer=1):
+        allowed_curves = self.get_allowed_curves(fit=fit, stack_reducer=stack_reducer)
         probabilities_normalized = self.normalize_probabilties(allowed_curves.columns)
+
+        operating_time = 0 if fit is None else fit['operating time']
         expected_curve = allowed_curves.loc[operating_time:].mul(probabilities_normalized).sum('columns')
 
         return expected_curve
 
     # get expected energy for time period
-    def get_expected_energy(self, operating_time=0, observed_power=0, time_needed=0):
-        expected_curve = self.get_expected_curve(operating_time, observed_power)
+    def get_expected_energy(self, fit=None, time_needed=0, stack_reducer=1):
+        expected_curve = self.get_expected_curve(fit, stack_reducer)
+
+        operating_time = 0 if fit is None else fit['operating time']
         if (time_needed > 0) and (time_needed <= len(expected_curve) - operating_time):
             energy = expected_curve.iloc[operating_time:operating_time+time_needed].sum()
         else:
-            energy = expected_curve.iloc[operating_time:].sum() ## numpy.float64 error
+            energy = expected_curve.iloc[operating_time:].sum()
         return energy
 
 # efficiency curves for a model type
@@ -263,14 +274,23 @@ class PowerModules(DataSheets):
         efficiencies = [self.get_efficiencies(model, mark, model_number) for model_number in model_numbers]
         return efficiencies
 
+    # return initial power rating of a given module
+    def get_stacks(self, model, mark, model_number):
+        rating = self.sql_db.get_module_stacks(model, mark, model_number)
+        return rating
+
 # details of energy enclosures
 class HotBoxes(DataSheets):
     def __init__(self, sql_db):
         DataSheets.__init__(self, sql_db)
 
     def get_model_number(self, server_model):
-        model_number, nameplate = self.sql_db.get_enclosure_model_number(server_model)
-        return model_number, nameplate
+        model_number, _ = self.sql_db.get_enclosure_model_number(server_model)
+        return model_number
+    
+    def get_nameplate(self, server_model):
+        _, nameplate = self.sql_db.get_enclosure_model_number(server_model)
+        return nameplate
 
 # details of energy servers
 class EnergyServers(DataSheets):

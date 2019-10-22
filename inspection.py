@@ -10,7 +10,7 @@ class Monitor:
                            'power', 'CTMO', 'WTMO', 'PTMO',
                            'fuel', 'Ceff', 'Weff', 'Peff',
                            'ceiling loss']
-    power_eff_columns = ['date'] + ['expected PTMO', 'expected CTMO'] + ['total']
+    power_eff_columns = ['date', 'total']
 
     def __init__(self, site_number, start_date, contract_length, windowed):
         self.contract_date_range = date_range(start=start_date, periods=contract_length*12, freq='MS').date
@@ -257,12 +257,13 @@ class Inspector:
         for server in site.get_servers():
             for enclosure in server.enclosures:
                 if enclosure.is_filled() and enclosure.fru.is_deviated(site.shop.thresholds['deviated']):
+                    reason = 'deviated by {:0.02%}'.format(enclosure.fru.get_deviation())
                     # FRU must be repaired
                     # pull the old FRU
                     old_fru = site.replace_fru(server.number, enclosure.number, None)
 
                     # store the old FRU
-                    site.shop.store_fru(old_fru, site.number, server.number, enclosure.number, repair=True)
+                    site.shop.store_fru(old_fru, site.number, server.number, enclosure.number, repair=True, reason=reason)
 
         commitments, fails = site.store_performance()
 
@@ -312,8 +313,6 @@ class Inspector:
                 server_dc, enclosure_dc = Inspector.get_worst_fru(site, 'energy')
                 max_power, installable = Inspector.check_max_power(site, new_fru=new_fru)
 
-                site.monitor.store_result('power', 'expected CTMO', site.get_month(), expected_ctmo)
-
             ## estimate final cumulative efficiency if FRUs degrade as expected and add FRUs if needed, with padding
             #expected_ceff = 0
             #if Inspector.check_fail(site, expected_ceff, site.limits['Ceff'], pad=site.shop.thresholds['eff pad']):
@@ -358,8 +357,6 @@ class Inspector:
                 expected_ptmo = site.get_site_power(lookahead=lookahead) / site.system_size
                 server_dp, enclosure_dp = Inspector.get_worst_fru(site, 'power')
                 max_power, installable = Inspector.check_max_power(site, new_fru=new_fru)
-
-                site.monitor.store_result('power', 'expected PTMO', site.get_month(), expected_ptmo)
 
         commitments, fails = site.store_performance()
 

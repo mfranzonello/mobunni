@@ -2,6 +2,7 @@
 
 # built-in imports
 from datetime import date
+from dateutil.relativedelta import relativedelta
 
 # add-on imports
 from pandas import DataFrame
@@ -86,6 +87,13 @@ class Commitments(Group):
                      ['window', self.limits['window'] if self.limits['WTMO'] or self.limits['Weff'] else None],
                      ['downside years', non_replace_years if len(non_replace_years) else None]]
 
+    # get years for cash flow
+    def get_cash_flow_dates(self):
+        start_year = (self.start_date + relativedelta(months=self.start_month)).year
+        end_year = (self.start_date + relativedelta(years=self.length)).year
+        return start_year, end_year
+
+
 # collection of exisiting and future technology
 class Technology(Group):
     '''
@@ -111,7 +119,8 @@ class Technology(Group):
             models = self.new_servers.get_models()
 
         else:
-            model_string = []
+            model_string = 'N/A'
+            models = []
 
         self.data = [['site code', self.site_name],
                      ['{} server models'.format(model_string), ' / '.join(models)]]

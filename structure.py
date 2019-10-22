@@ -172,6 +172,12 @@ class SQLDB:
         rating = read_sql(sql, self.connection).iloc[0].squeeze()
         return efficiency
 
+    # select stacks of initial build power module
+    def get_module_stacks(self, model, mark, model_number):
+        sql = 'SELECT stacks FROM Module WHERE (model = "{}") and (mark = "{}") and (model_number = "{}")'.format(model, mark, model_number)
+        stacks = read_sql(sql, self.connection).iloc[0].squeeze()
+        return stacks
+
     # select enclosure compatible with energy server
     def get_enclosure_model_number(self, server_model):
         sql = 'SELECT model_number, nameplate FROM Enclosure WHERE model = "{}"'.format(server_model)

@@ -76,6 +76,9 @@ def get_scenario(excel_int: ExcelInt, scenario_number: int, apc: APC):
         target_size = new_servers.get_size()
         start_month = 0
         print(new_servers)
+    else:
+        target_size = 0
+        start_month = 0
 
     commitments = Commitments(length=contract_length, target_size=target_size, start_date=start_date,
                               start_month=start_month, non_replace=non_replace, limits=limits)
@@ -110,6 +113,9 @@ def run_scenarios(project: Project, excel_int: ExcelInt, details: Details, sql_d
             # run simulation
             simulation = run_simulation(details, scenario, sql_db, thresholds)
             save_results(project, scenario, simulation)
+        else:
+            # not enough details
+            print('Not enough details in scenario or missing connection ... skipping!')
 
 # output results
 def save_results(project: Project, scenario: Scenario, simulation: Simulation):

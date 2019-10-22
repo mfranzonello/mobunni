@@ -1,5 +1,8 @@
 # physical field replaceable unit power modules (FRUs) and energy servers (with enclosure cabinets)
 
+# built-in imports
+from inspect import signature
+
 # add-on imports
 from pandas import concat
 from dateutil.relativedelta import relativedelta
@@ -27,6 +30,20 @@ class Component:
         if 'number' in kwargs:
             self.number = kwargs['number']
 
+    # create a copy of the base component
+    def copy(self, **kwargs):
+        '''
+        The shop uses a template FRU to produce
+        new versions.
+        '''
+        signatures = [p for p in signature(self.__class__.__init__).parameters if p != 'self']
+        dictionary = self.__dict__
+        attributes = {d: dictionary[d] for d in dictionary if d in signatures}
+        updates = {k: kwargs[k] for k in kwargs if k in signatures}
+        attributes.update(updates)
+        component = self.__class__(**attributes)
+        return component
+
 # power module (field replaceable unit)
 class FRU(Component):
     '''
@@ -35,7 +52,9 @@ class FRU(Component):
     with a new energy server) or "FRU" (installed as a
     replacement for an original module).
     '''
-    def __init__(self, serial, model, mark, model_number, rating, power_curves, efficiency_curves, install_date, current_date,
+    def __init__(self, serial, model, mark, model_number,
+                 rating, power_curves, efficiency_curves, stacks,
+                 install_date, current_date,
                  fit=None):
         # FRU defined by sampled power curve at given installation year
         # FRUs are typically assumed to be new and starting at time 0, otherwise they follow the best fit power curve
@@ -44,9 +63,12 @@ class FRU(Component):
         self.install_date = install_date
         self.month = 0
         
+        self.stacks = stacks ##
+        self.stack_reducer = 1
+
         self.power_curves = power_curves
-        self.power_curve = self.power_curves.pick_curve(allowed=[0,1], fit=fit)
-        self.ideal_curve = self.power_curves.pick_curve(allowed='ideal')
+        self.power_curve = self.power_curves.pick_curve(allowed=[0,1], fit=fit, stack_reducer=self.stack_reducer)
+        self.ideal_curve = self.power_curves.pick_curve(allowed='ideal', fit=fit, stack_reducer=self.stack_reducer)
 
         self.efficiency_curves = efficiency_curves
         self.efficiency_curve = self.efficiency_curves.pick_curve(fit=fit)
@@ -82,16 +104,24 @@ class FRU(Component):
       
         return power
 
+    # get performance fit so far
+    def get_performance(self):
+        fit = {'performance': self.power_curve[:self.get_month()].to_frame('kw'),
+               'operating time': self.get_month()}
+
+        return fit
+
     # estimate the power curve in deployed FRU
     def get_expected_curve(self):
-        curve = self.power_curve.copy()
-        #curve = self.power_curves.get_expected_curve(self.get_month(), self.get_power())
+        curve = self.power_curves.get_expected_curve(fit=self.get_performance(),
+                                                     stack_reducer=self.stack_reducer)
         return curve
 
     # estimate the remaining energy in deployed FRU
     def get_energy(self, months=None):
         time_needed = self.get_expected_life() if months is None else months      
-        energy = self.power_curves.get_expected_energy(operating_time=self.get_month(), observed_power=self.get_power(), time_needed=time_needed)
+        energy = self.power_curves.get_expected_energy(fit=self.get_performance(),
+                                                       time_needed=time_needed, stack_reducer=self.stack_reducer)
         return energy
 
     # get efficiency of FRU
@@ -99,6 +129,16 @@ class FRU(Component):
         month = self.get_month(lookahead=lookahead)
         efficiency = self.efficiency_curve[min(month, len(self.efficiency_curve)-1)]
         return efficiency
+
+    # get deviation of FRU
+    def get_deviation(self, lookahead=None):
+        ideal_power = self.get_power(ideal=True, lookahead=lookahead)
+        if ideal_power == 0:
+            deviation = 0
+        else:
+            deviation = 1 - self.get_power(lookahead=lookahead) / ideal_power
+
+        return deviation
 
     # estimated months left of FRU life
     def get_expected_life(self):
@@ -113,7 +153,7 @@ class FRU(Component):
         return dead
 
     # determine if the power module has degraded already
-    def is_degraded(self, threshold:int=0) -> bool:
+    def is_degraded(self, threshold:float=0) -> bool:
         '''
         If a power module is outputting less power than its initial rating
         then it is degraded and can be replaced. Default threshold
@@ -123,7 +163,7 @@ class FRU(Component):
         return degraded
 
     # determine if the power module is inefficient already
-    def is_inefficient(self, threshold:int=0) -> bool:     
+    def is_inefficient(self, threshold:float=0) -> bool:     
         '''
         If a power module is operating at a lower efficiencing than initially
         then it is inefficient and can be replaced. Default threshold
@@ -133,7 +173,7 @@ class FRU(Component):
         return inefficient
 
     # determine if a FRU needs to be repaired
-    def is_deviated(self, threshold:int=0) -> bool:
+    def is_deviated(self, threshold:float=0) -> bool:
         '''
         If a power module is outputting power too far below what the
         ideal curve would be outputting, then it is deviated and can
@@ -143,7 +183,7 @@ class FRU(Component):
             # FRU is at end of life and unrepairable
             deviated = False
         else:
-            deviated = 1 - self.get_power() / self.get_power(ideal=True) > threshold ## DIV BY ZERO??
+            deviated = self.get_deviation() > threshold ## DIV BY ZERO??
      
         return deviated
 
@@ -174,27 +214,23 @@ class FRU(Component):
         return
 
     # replace stacks and choose new power curves for bespoke options
-    def overhaul(self, model_number, power_curves, efficiency_curves):
+    def overhaul(self, new_stacks):
         '''
         An overhauled FRU starts its life over with new power
         and efficiency curves.
         '''
-        # give new bespoke model number
-        self.model_number = model_number
+        
         # set new power and efficiency curves
-        self.set_curves(power_curves, efficiency_curve)
+        self.stack_reducer = new_stacks/self.stacks
+        
+        self.power_curve = self.power_curves.pick_curve(allowed=[0,1], stack_reducer=self.stack_reducer)
+        self.ideal_curve = self.power_curves.pick_curve(allowed='ideal', stack_reducer=self.stack_reducer) ##
+
+        self.efficiency_curve = self.efficiency_curves.pick_curve()
+        
         # reset month
         self.month = 0
-
-    # create a copy of the base FRU
-    def copy(self, serial, install_date, current_date, fit=None):
-        '''
-        The shop uses a template FRU to produce
-        new versions.
-        '''
-        fru = FRU(serial, self.model, self.mark, self.model_number, self.rating, self.power_curves, self.efficiency_curves, install_date, current_date, fit=fit)
-        return fru
-        
+      
 # cabinet in energy server that can house a FRU
 class Enclosure(Component):  
     def __init__(self, serial, number, model, model_number, nameplate):

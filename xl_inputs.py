@@ -311,8 +311,8 @@ class ExcelInt:
         # set non_replace to empty dataframe if blank
         non_replace.dropna(inplace=True)
 
-        # drop totals row from servers
-        servers = servers.iloc[:-1]
+        # drop totals row and empty rows from servers
+        servers = servers.iloc[:-1].dropna(subset=['model', 'model_number'])
 
         # set tech roadmap to default if blank
         if roadmap['model'].dropna().empty:

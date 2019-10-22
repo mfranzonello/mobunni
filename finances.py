@@ -29,7 +29,7 @@ class Cash:
         return start_value, escalator
 
     # generate cash flow and transpose
-    def generate_cash_flow(self, cost_tables, size):
+    def generate_cash_flow(self, cost_tables, size, years):
         first_columns = ['year', 'fru replacement schedule']
         cost_columns = {'fru costs': ['fru replacement costs',
                                       'fru repair costs',
@@ -78,7 +78,7 @@ class Cash:
         cash_flow.loc[:, '$/kw'] = cash_flow['total costs'].div(size)
 
         # transpose
-        cash_flow = cash_flow.T
+        cash_flow = cash_flow.query('year in @years').T
         cash_flow.columns = range(1, cash_flow.shape[-1] + 1)
 
         return cash_flow

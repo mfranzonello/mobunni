@@ -92,8 +92,10 @@ class Excelerator:
         
         if columns is None:
             column_indices = range(1, c + 1)
+        elif columns == 0:
+            column_indices = [0]
         else:
-            column_indices = [df.columns.to_list().index(c) for c in columns]
+            column_indices = [df.columns.to_list().index(c) + self.print_index.get(sheetname, 0) for c in columns]
         return row_indices, column_indices
 
     # store sheet value data
@@ -352,7 +354,8 @@ class ExcelePaint:
 
         columns = {'percent': ['{}{}{}'.format(r, v, b) for v in ExcelePaint.percent_values for r in ranges for b in ExcelePaint.bounds],
                    'comma': ['{}{}'.format(v, b) for v in ExcelePaint.comma_values for b in ExcelePaint.bounds],
-                   'date': ExcelePaint.date_values}
+                   'date': ExcelePaint.date_values,
+                   }
 
         cost_key = 'power'
         columns_2 = [r for r in ExcelePaint.ranges_2 if r in cost_tables[cost_key].columns]
@@ -363,14 +366,16 @@ class ExcelePaint:
                   'inputs': {col: [col] for col in ['input', 'value']},
                   'transactions': {'date': ['date'], 'value': ['serial', 'mark'], 'action': ['action'], 'money': ['service cost'],
                                    'comma': ['power'], 'percent': ['efficiency']},
-                  'costs': {'action': None}}
+                  'costs': {'action': None},
+                  'cash flow': {'cash': 0},
+                  }
 
         indices = ['cash flow']
 
         data = ExcelePaint._get_data(inputs, performance, cost_tables, power, efficiency, transactions, cash_flow)
         print_index = ExcelePaint._get_print_index(indices)
-        formats = ExcelePaint._get_formats(windowed, styles)
-        charts = ExcelePaint._get_charts(windowed, limits, ranges, performance, cost_tables, columns['percent'], columns_2, cost_key=cost_key)
+        formats = ExcelePaint._get_formats(styles)
+        charts = ExcelePaint._get_charts(limits, ranges, performance, cost_tables, columns['percent'], columns_2, cost_key=cost_key)
 
         return data, print_index, formats, charts
 
@@ -379,7 +384,8 @@ class ExcelePaint:
                 'performance': performance, 'costs': [cost_tables[c] for c in cost_tables],
                 'power': power, 'efficiency': efficiency,
                 'transactions': transactions,
-                'cash flow': cash_flow}
+                'cash flow': cash_flow,
+                }
 
         return data
 
@@ -387,16 +393,16 @@ class ExcelePaint:
         print_index = {idx: True for idx in indices}
         return print_index
 
-    def _get_formats(windowed, styles):
+    def _get_formats(styles):
         formats = [{'sheetname': sheetname, 'columns': cols,
                     'style': ExcelePaint.num_styles.get(style),
                     'width': ExcelePaint.widths.get(style),
                     'rows': ExcelePaint.heights.get(sheetname)} for sheetname in styles \
-            for (cols, style) in zip(styles[sheetname].values(), styles[sheetname].keys())]
+                    for (cols, style) in zip(styles[sheetname].values(), styles[sheetname].keys())]
 
         return formats
 
-    def _get_charts(windowed, limits, ranges, performance, cost_tables, chart_columns, chart_columns_2, cost_key):
+    def _get_charts(limits, ranges, performance, cost_tables, chart_columns, chart_columns_2, cost_key):
         # find cost table to use for bar graph
         cost_keys = list(cost_tables.keys())
         cost_table = cost_tables[cost_key][chart_columns_2].iloc[0:-2] ## -2 = -1 for totals row -1 for last year storage

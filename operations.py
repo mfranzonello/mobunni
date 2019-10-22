@@ -96,38 +96,63 @@ class LogBook:
 
 # template for new modules and servers
 class Templates:
-    def __init__(self, power_modules):
+    def __init__(self, power_modules:PowerModules, hot_boxes:HotBoxes, energy_servers:EnergyServers):
         self.power_modules = power_modules
-        self.servers = {}
-        self.modules = {}
+        self.hot_boxes = hot_boxes
+        self.energy_servers = energy_servers
 
-    def find_server(self, model):
-        server = None
-        return server
+        self.components = {comp: {} for comp in ['module', 'enclosure', 'server']}
 
-    def ghost_server(self, model):
-        pass
+    def find_component(self, component_type:str, model:str=None, mark:str=None, model_number:str=None, **kwargs):
+        key = tuple(m for m in [model, mark, model_number] if m is not None)
+        
+        if key not in self.components[component_type]:
+            self.ghost_component(component_type, key, model, mark, model_number)
 
-    def find_module(self, model, mark, model_number):
-        if (model, mark, model_number) in self.modules:
-            module = self.modules[(model, mark, model_number)]
-        else:
-            module = self.ghost_module(model, mark, model_number)
-        return module
+        component = self.components[component_type][key].copy(**kwargs)
 
-    def ghost_module(self, model, mark, model_number):
-        serial = None # blank serial
-        install_date = None # blank date
+        return component
+
+    def ghost_component(self, component_type:str, key:tuple, model:str=None, mark:str=None, model_number:str=None):
+        if component_type == 'module':
+            component = self.ghost_module(model, mark, model_number)
+
+        elif component_type == 'enclosure':
+            component = self.ghost_enclosure(model, model_number)
+
+        elif component_type == 'server':
+            component = self.ghost_server(model, model_number)
+
+        self.components[component_type][key] = component
+
+    def ghost_module(self, model:str, mark:str, model_number:str):
+        serial, install_date = [None]*2 # blank serial and date
 
         power_curves, efficiency_curves = self.power_modules.get_curves(model, mark, model_number)
         rating = self.power_modules.get_rating(model, mark, model_number)
+        stacks = self.power_modules.get_stacks(model, mark, model_number)
 
-        fru = FRU(serial, model, mark, model_number, rating, power_curves, efficiency_curves, install_date, current_date=install_date)
-
-        # add FRU template
-        self.modules[(model, mark, model_number)] = fru
+        fru = FRU(serial, model, mark, model_number,
+                  rating, power_curves, efficiency_curves, stacks,
+                  install_date, current_date=install_date)
 
         return fru
+
+    def ghost_enclosure(self, model, model_number):
+        serial, number = [None]*2
+        nameplate = self.hot_boxes.get_nameplate(model)
+        enclosure = Enclosure(serial, number, model, model_number, nameplate)
+
+        return enclosure
+
+    def ghost_server(self, model, model_number):
+        serial, number = [None]*2
+
+        nameplate = self.energy_servers.get_server_model(server_model_class=model, server_model_number=model_number)['nameplate']
+        server = Server(serial, number, model, model_number, nameplate)
+
+        return server
+
 
 # warehouse to store, repair and deploy old FRUs and create new FRUs
 class Shop:
@@ -137,7 +162,7 @@ class Shop:
         self.energy_servers = EnergyServers(sql_db)
         self.bank = Bank(sql_db)
 
-        self.templates = Templates(self.power_modules)
+        self.templates = Templates(self.power_modules, self.hot_boxes, self.energy_servers)
         self.log_book = LogBook()
 
         self.thresholds = thresholds
@@ -177,9 +202,10 @@ class Shop:
         serial = self.get_serial('PWM')
         
         # check if template already created to reduce calls to DB
-        fru = self.templates.find_module(model, mark, model_number).copy(serial, install_date,
-                                                                         current_date=current_date if current_date is not None else install_date,
-                                                                         fit=fit)
+        fru = self.templates.find_component('module', model=model, mark=mark, model_number=model_number,
+                                            serial=serial, install_date=install_date,
+                                            current_date=current_date if current_date is not None else install_date,
+                                            fit=fit)
 
         # get costs
         if initial:
@@ -210,7 +236,7 @@ class Shop:
             cost = self.get_cost('repair fru', fru, operating_time=fru.get_month(), power=fru.get_power())
 
             self.transact(fru.serial, fru.model, fru.mark, fru.get_power(), fru.get_efficiency(),
-                          'repaired FRU', 'from', site_number, server_number, enclosure_number, cost, reason='deviated FRU')
+                          'repaired FRU', 'from', site_number, server_number, enclosure_number, cost, reason=reason)
 
         return
 
@@ -247,15 +273,15 @@ class Shop:
 
     # overhaul a FRU to make it refurbished and bespoke
     ## NOT IMPLEMENTED
-    ##def overhaul_fru(self, queue, mark, site_number, server_number, enclosure_number, reason=None):
-    ##    fru = self.junk.pop(queue)
-    ##    power_curves, efficiency_curve = self.power_modules.get_curves(fru.model, mark)
+    def overhaul_fru(self, queue, stacks, site_number, server_number, enclosure_number, reason=None):
+        fru = self.junk.pop(queue)
+        power_curves, efficiency_curve = self.power_modules.get_curves(fru.model, mark)
 
-    ##    fru.overhaul(mark, power_curves, efficiency_curve)
-    ##    cost = self.get_cost('overhaul fru')
-    ##    self.transact(fru.serial, fru.model, fru.mark, fru.get_power(), fru.get_efficiency(),
-    ##                    'overhauled FRU', 'to', site_number, server_number, enclosure_number, cost, reason=reason)
-    ##    return fru
+        fru.overhaul(stacks)
+        cost = self.get_cost('overhaul fru')
+        self.transact(fru.serial, fru.model & '-R', fru.mark, fru.get_power(), fru.get_efficiency(),
+                        'overhauled FRU', 'to', site_number, server_number, enclosure_number, cost, reason=reason)
+        return fru
 
     # find FRU in deployable or junk that best fits requirements
     def find_fru(self, allowed_models, power_needed=0, energy_needed=0, efficiency_needed=0, 
@@ -452,7 +478,8 @@ class Shop:
                                                             nameplate_needed=nameplate_needed,
                                                             n_enclosures=n_enclosures)
         
-        server = Server(serial, server_number, server_model['model'], server_model['model_number'], server_model['nameplate'])
+        server = self.templates.find_component('server', model=server_model['model'], model_number=server_model['model_number'],
+                                               serial=serial, number=server_number)
 
         # get cost to create a server
         cost = self.get_cost('install server', server)
@@ -460,9 +487,9 @@ class Shop:
         self.transact(server.serial, server.model, server.model_number, server.nameplate, None,
                       'installed ES', 'at', site_number, server.number, None, cost, reason=reason)
 
-        enclosure_model_number, enclosure_nameplate = self.hot_boxes.get_model_number(server_model['model'])
+        enclosure_model_number = self.hot_boxes.get_model_number(server_model['model'])
 
-        enclosures = self.create_enclosures(site_number, server, server.model, enclosure_model_number, enclosure_nameplate,
+        enclosures = self.create_enclosures(site_number, server, server.model, enclosure_model_number,
                                             enclosure_count=server_model['enclosures'], plus_one_count=server_model['plus_one'])     
 
         for enclosure in enclosures:
@@ -497,7 +524,7 @@ class Shop:
         return nameplate
 
     # create an enclosure cabinent to add to a server to house a FRU
-    def create_enclosures(self, site_number, server, enclosure_model, enclosure_model_number, nameplate,
+    def create_enclosures(self, site_number, server, enclosure_model, enclosure_model_number,
                           start_number=0, enclosure_count=0, plus_one_count=0,
                           reason='populating server'):
         # get cost per enclosure
@@ -507,7 +534,8 @@ class Shop:
         enclosures = []
         for c in range(enclosure_count + plus_one_count):
             serial = self.get_serial('ENC')
-            enclosure = Enclosure(serial, start_number + c, enclosure_model, enclosure_model_number, nameplate)
+            enclosure = self.templates.find_component('enclosure', model=enclosure_model, model_number=enclosure_model_number,
+                                                      serial=serial, number=start_number + c)
             enclosures.append(enclosure)
             self.transact(serial, enclosure.model, enclosure.model_number, enclosure.nameplate, None,
                           'add enclosure', 'at', site_number, server.number, enclosure.number, costs[c], reason=reason)
