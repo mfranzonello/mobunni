@@ -4,32 +4,36 @@
 from pandas import DataFrame
 from datetime import date
 
+# built-in imports
+from structure import SQLDB
+from components import Component
+
 # assign costs during simulation
 class Bank:
-    def __init__(self, sql_db):
+    def __init__(self, sql_db:SQLDB):
         self.sql_db = sql_db
 
     # pull cost from database
-    def get_cost(self, date, action, component=None, **kwargs):
+    def get_cost(self, action_date:date, action:str, component:Component=None, **kwargs) -> float:
         if component is not None:
             kwargs['model'] = getattr(component, 'model', None)
             kwargs['mark'] = getattr(component, 'mark', None)
 
-        cost = self.sql_db.get_cost(action, date, **kwargs)
+        cost = self.sql_db.get_cost(action, action_date, **kwargs)
         return cost
 
 # assign fleet costs for cash flow
 class Cash:
-    def __init__(self, sql_db):
+    def __init__(self, sql_db:SQLDB):
         self.sql_db = sql_db
 
     # pull start cost and escalator from database
-    def get_escalator(self, item, date, escalator_basis=None):
-        start_value, escalator = self.sql_db.get_line_item(item, date, escalator_basis)
+    def get_escalator(self, item:str, action_date:date, escalator_basis:str=None) -> [float, float]:
+        start_value, escalator = self.sql_db.get_line_item(item, action_date, escalator_basis)
         return start_value, escalator
 
     # generate cash flow and transpose
-    def generate_cash_flow(self, cost_tables, size, years):
+    def generate_cash_flow(self, cost_tables:dict, size:float, years:list) -> DataFrame:
         first_columns = ['year', 'fru replacement schedule']
         cost_columns = {'fru costs': ['fru replacement costs',
                                       'fru repair costs',

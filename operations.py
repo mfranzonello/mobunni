@@ -11,10 +11,11 @@ from pandas import DataFrame, Series, concat, to_datetime, to_numeric, isna
 from numpy import nan
 
 # self-defined imports
+from structure import SQLDB
 from powerful import PowerModules, HotBoxes, EnergyServers
-from components import FRU, Enclosure, Server
+from components import Component, FRU, Enclosure, Server
 from finances import Bank
-from debugging import StopWatch
+from groups import Thresholds, Technology, Tweaks
 
 # record of transactions and results across shop and fleet
 class LogBook:
@@ -23,7 +24,7 @@ class LogBook:
                                                'direction', 'site', 'server', 'enclosure', 'service cost', 'reason'])
         self.performance = {'site': {}, 'fru': {}}
 
-    def number(self, value):
+    def number(self, value:float) -> int:
         try:
             if int(value) == value:
                 num = int(value) + 1
@@ -35,15 +36,15 @@ class LogBook:
         return num
 
     # record log of transactions
-    def record_transaction(self, date, serial, model, mark, power, efficiency,
-                           action, direction, site_number, server_number, enclosure_number, cost, reason=None):
-        self.transactions.loc[len(self.transactions), :] = [date, serial, model, mark, power, efficiency,
+    def record_transaction(self, action_date:date, serial:str, model:str, model_number:str, power:float, efficiency:float,
+                           action:str, direction:str, site_number:str, server_number:str, enclosure_number:str, cost:float, reason:str=None):
+        self.transactions.loc[len(self.transactions), :] = [action_date, serial, model, model_number, power, efficiency,
                                                             action, direction,
                                                             self.number(site_number), self.number(server_number), self.number(enclosure_number),
                                                             cost, reason]
 
     # store power and efficiency
-    def record_performance(self, table, site_number, *args):
+    def record_performance(self, table:str, site_number:str, *args):
         if table == 'site':
             [performance] = args
             self.performance['site'][site_number] = performance
@@ -56,7 +57,7 @@ class LogBook:
             self.performance['fru'][site_number] = {'power': power, 'efficiency': efficiency}
 
     # combine transactions by year, site and action
-    def get_transactions(self, site_number=None, last_date=None):
+    def get_transactions(self, site_number:str=None, last_date:bool=None) -> DataFrame:
         transactions = self.transactions.copy()
 
         if site_number is not None:
@@ -68,19 +69,19 @@ class LogBook:
 
         return transactions
 
-    def get_performance(self, table, site_number):
+    def get_performance(self, table:str, site_number:str) -> DataFrame:
         performance = self.performance[table][site_number]
         return performance
 
     # return series of value if site is target site
-    def identify_target(self, sites, site_number, site_col='site', site_adder=True, target_col='target'):
+    def identify_target(self, sites:DataFrame, site_number:str, site_col:str='site', site_adder:bool=True, target_col:str='target') -> DataFrame:
         target_series = sites[site_col] == (site_number + site_adder)
         target_identified = concat([sites, target_series.rename(target_col)], axis='columns')
 
         return target_identified
 
     # combine transactions by year, site and action
-    def summarize_transactions(self, site_number):
+    def summarize_transactions(self, site_number:str) -> DataFrame:
         transactions_yearly = self.get_transactions()
         transactions_yearly.insert(0, 'year', to_datetime(transactions_yearly['date']).dt.year)
         transactions_gb = transactions_yearly[['year', 'site', 'action', 'service cost', 'power']].groupby(['year', 'site', 'action'])
@@ -103,7 +104,7 @@ class Templates:
 
         self.components = {comp: {} for comp in ['module', 'enclosure', 'server']}
 
-    def find_component(self, component_type:str, model:str=None, mark:str=None, model_number:str=None, serial=None, **kwargs):
+    def find_component(self, component_type:str, model:str=None, mark:str=None, model_number:str=None, serial=None, **kwargs) -> Component:
         key = tuple(m for m in [model, mark, model_number] if m is not None)
         
         if key not in self.components[component_type]:
@@ -125,7 +126,7 @@ class Templates:
 
         self.components[component_type][key] = component
 
-    def ghost_module(self, model:str, mark:str, model_number:str):
+    def ghost_module(self, model:str, mark:str, model_number:str) -> FRU:
         serial, install_date = [None]*2 # blank serial and date
 
         power_curves, efficiency_curves = self.power_modules.get_curves(model, mark, model_number)
@@ -138,14 +139,14 @@ class Templates:
 
         return fru
 
-    def ghost_enclosure(self, model, model_number):
+    def ghost_enclosure(self, model:str, model_number:str) -> Enclosure:
         serial, number = [None]*2
         _, nameplate = self.hot_boxes.get_model_details(model)
         enclosure = Enclosure(serial, number, model, model_number, nameplate)
 
         return enclosure
 
-    def ghost_server(self, model, model_number):
+    def ghost_server(self, model:str, model_number:str) -> Server:
         serial, number = [None]*2
 
         nameplate = self.energy_servers.get_server_model(server_model_class=model, server_model_number=model_number)['nameplate']
@@ -156,7 +157,7 @@ class Templates:
 
 # warehouse to store, repair and deploy old FRUs and create new FRUs
 class Shop:
-    def __init__(self, sql_db, thresholds, install_date, tweaks, technology):
+    def __init__(self, sql_db:SQLDB, thresholds:Thresholds, install_date:date, tweaks:Tweaks, technology:Technology):
         self.power_modules = PowerModules(sql_db)
         self.hot_boxes = HotBoxes(sql_db)
         self.energy_servers = EnergyServers(sql_db)
@@ -180,25 +181,26 @@ class Shop:
         self.next_serial = {'ES': 0, 'PWM': 0, 'ENC': 0}
 
     # record log of transactions
-    def transact(self, serial, model, model_number, power, efficiency,
-                 action, direction, site_number, server_number, enclosure_number, cost, reason=None):
+    def transact(self, serial:str, model:str, model_number:str, power:float, efficiency:float,
+                 action:str, direction:str, site_number:str, server_number:str, enclosure_number:str, cost:float, reason:str=None):
         self.log_book.record_transaction(self.date, serial, model, model_number, power, efficiency,
                                          action, direction, site_number, server_number, enclosure_number, cost, reason)
 
     # return serial number for component tracking
-    def get_serial(self, component):
+    def get_serial(self, component:str) -> str:
         self.next_serial[component] += 1
         serial = '{}{}'.format(component, str(self.next_serial[component]).zfill(6))
         return serial
 
     # get cost for action
-    def get_cost(self, action, component=None, **kwargs):
+    def get_cost(self, action:str, component:str=None, **kwargs) -> float:
         cost = self.bank.get_cost(self.date, action, component, **kwargs)
         return cost
 
     # copy a FRU from a template
-    def create_fru(self, model, mark, model_number, install_date, site_number, server_number, enclosure_number,
-                   initial=False, current_date=None, fit=None, reason=None):
+    def create_fru(self, model:str, mark:str, model_number:str, install_date:date, site_number:str, server_number:str, enclosure_number:str,
+                   initial:bool=False, current_date:date=None, fit:dict=None, reason:str=None) -> FRU:
+
         serial = self.get_serial('PWM')
         
         # check if template already created to reduce calls to DB

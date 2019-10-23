@@ -152,20 +152,52 @@ class ExcelSeer:
         for range_name, sheet_num in workbook.name_and_scope_map:
             cell_obj = workbook.name_and_scope_map[(range_name, sheet_num)]
 
-            if (cell_obj.formula_text != '#REF!') and ('!' in cell_obj.formula_text):
-                (sheet_name, ref) = cell_obj.formula_text.split('!')
-                (discard, col_str, row_str) = ref.split('$')
-                col = 0
-                for i in range(len(col_str)):
-                    col_add = string.ascii_uppercase.index(col_str)
-                    col += col_add * 10**i
-                row = int(row_str)-1
-                if (sheet_name[0] == "'") and (sheet_name[-1] == "'"):
-                    sheet_name = sheet_name[1:-1]
+            if ('#REF!' not in cell_obj.formula_text) and ('!' in cell_obj.formula_text):
+                sheet_name, ref = cell_obj.formula_text.split('!')
                 
-                self.data[(sheet_name, range_name.lower())] = workbook.sheet_by_name(sheet_name).cell(row, col).value
+                if (sheet_name[0] == "'") and (sheet_name[-1] == "'"):
+                        sheet_name = sheet_name[1:-1]
+
+                anchors = ref.split(':')
+                _, col_str_1, row_str_1 = anchors[0].split('$')
+                _, col_str_2, row_str_2 = anchors[-1].split('$')
+                row_range = range(self.get_xl_row(row_str_1), self.get_xl_row(row_str_2) + 1)
+                col_range = range(self.get_xl_col(col_str_1), self.get_xl_col(col_str_2) + 1)
+
+                if (len(row_range) == 1) and (len(col_range) == 1):
+                    # only one cell
+                    values = workbook.sheet_by_name(sheet_name).cell(row_range[0], col_range[0]).value
+
+                elif len(row_range) == 1:
+                    # vertical array
+                    values = [self.get_xl_value(workbook, sheet_name, row_range[0], col) for col in col_range]
+
+                elif len(col_range) == 1:
+                    # horizontal array
+                    values = [self.get_xl_value(workbook, sheet_name, row, col_range[0]) for row in row_range]
+
+                else:
+                    # rectangular area
+                    values = [[self.get_xl_value(workbook, sheet_name, row, col) for row in row_range] for col in col_range]
+                
+                self.data[(sheet_name, range_name.lower())] = values
 
         return
+
+    def get_xl_value(self, workbook, sheet_name:str, row:int, col:int) -> str:
+        value = workbook.sheet_by_name(sheet_name).cell(row, col).value
+        return value
+
+    def get_xl_row(self, row_str:str) -> int:
+        row = int(row_str) - 1
+        return row
+
+    def get_xl_col(self, col_str:str) -> int:
+        col = 0
+        for i in range(len(col_str)):
+            col_add = string.ascii_uppercase.index(col_str)
+            col += col_add * 10**i
+        return col
 
 # read Excel data into SQL database
 class ExcelSQL:

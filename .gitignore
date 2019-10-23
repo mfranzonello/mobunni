@@ -7,6 +7,7 @@ test.py
 # proprietary files
 bpm.db
 secret.py
+debugging.py
 projects/
 add/
 

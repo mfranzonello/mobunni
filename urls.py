@@ -2,9 +2,14 @@
 from secret import passcodes
 
 class URL:
-    databases = {'sqlite': {'parameters': {'connector': 'sqlite',
-                                           'database': 'bpm'},
-                            'string format': '{connector}:///{database}.db'},
+    databases = {'sqlite-local': {'parameters': {'connector': 'sqlite',
+                                                 'database': 'bpm'},
+                                  'string format': '{connector}:///{database}.db'},
+
+                 'sqlite-network': {'parameters': {'connector': 'sqlite',
+                                                   'database': 'mobunni',
+                                                   'path': r'\\Denali\Departments\Marketing\Product_Management\Service Costs'},
+                                    'string format': '{connector}:///{path}\{database}.db'},
                             
                  'remotemysql': {'parameters': {'connector': 'mysql',
                                                 'username': passcodes['remotemysql']['username'],

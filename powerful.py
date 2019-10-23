@@ -227,26 +227,26 @@ class PowerModules(DataSheets):
                 return model, mark, model_number
 
     # return initial power rating of a given module
-    def get_rating(self, model, mark, model_number):
+    def get_rating(self, model:str, mark:str, model_number:str) -> int:
         rating = self.sql_db.get_module_rating(model, mark, model_number)
         return rating
 
     # return expected energy output of a given model
-    def get_energy(self, model, mark, model_number, time_needed):
+    def get_energy(self, model:str, mark:str, model_number:str, time_needed:int) -> float:
         curves = PowerCurves(self.sql_db.get_power_curves(model, mark, model_number))
 
         energy = curves.get_expected_energy(time_needed=time_needed)
         return energy
 
     # return initial efficiency contribution of a given module
-    def get_efficiency(self, model, mark, model_number):
+    def get_efficiency(self, model:str, mark:str, model_number:str) -> float:
         efficiency = self.sql_db.get_module_efficiency(model, mark, model_number)
         rating = self.sql_db.get_module_rating(model, mark, model_number)
         efficiency = efficiency * rating
         return efficiency
 
     # return stacks of a given module
-    def get_stacks(self, model, mark, model_number):
+    def get_stacks(self, model:str, mark:str, model_number:str) -> [int]:
         stacks = self.sql_db.get_module_stacks(model, mark, model_number)
         return stacks
 
@@ -255,7 +255,7 @@ class HotBoxes(DataSheets):
     def __init__(self, sql_db):
         DataSheets.__init__(self, sql_db)
 
-    def get_model_details(self, server_model):
+    def get_model_details(self, server_model:str) -> DataFrame:
         model_number, nameplate = self.sql_db.get_enclosure_model_number(server_model)
         return model_number, nameplate
     
@@ -265,7 +265,7 @@ class EnergyServers(DataSheets):
         DataSheets.__init__(self, sql_db)
 
     # get base model of a server model number
-    def get_server_model(self, **kwargs):
+    def get_server_model(self, **kwargs) -> DataFrame:
         if kwargs.get('server_model_class') is not None:
             kwargs['server_model_class'] = self.get_alternative_model(kwargs['server_model_class'])
         server_model = self.sql_db.get_server_model(**kwargs)

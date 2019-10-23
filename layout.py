@@ -13,107 +13,8 @@ from pandas import read_json, isna, concat, DataFrame, Series, to_datetime
 from urls import URL
 from properties import Site
 from structure import SQLDB
-
-class LayoutGenerator:
-    def __init__(self, sites:Site):
-        self.sites = sites
-
-# connect to internal Bloom API for site, server and power module performance of fleet
-class APC:
-    url, endpoint = URL.get_apc()
-
-    # check if there is an internet connection
-    def check_internet():
-        try:
-            urlopen(APC.url, timeout=5)
-            internet = True
-        except URLError:
-            internet = False
-
-        return internet
-
-    # get Bloom sites, customer names, servers and power modules
-    def get_data(keyword:str) -> DataFrame:
-        keywords = {'sites': 'sites',
-                    'servers': 'energyServers'}
-        print('Connecting to APC for {} data'.format(keyword))
-        url = '{endpoint}/{key}'.format(endpoint=APC.endpoint, key=keywords[keyword])
-        data = read_json(url)
-        return data
-
-    def __init__(self):
-        self.sites = None
-        self.servers = None
-
-    # get performance of each power module at a site
-    def get_site_performance(self, site_code:str, start_date:date=None, end_date:date=None, tmo_threshold:float=10) -> dict:
-        site_performance = {}
-        if APC.check_internet() and ((site_code is not None) and len(site_code)):
-            if self.sites is None: self.sites = APC.get_data('sites')
-            if self.servers is None: self.servers = APC.get_data('servers')
-
-            print('Downloading {} performance from APC'.format(site_code))
-            for server_code in self.servers.query('site == @site_code')['id']:
-                server_number = server_code.replace(site_code, '')
-                server_nameplate = self.servers.query('id == @server_code')['nameplateKw'].squeeze()
-                server_model = self.servers.query('id == @server_code')['type'].squeeze().title()
-
-                site_performance[server_number] = {'nameplate': server_nameplate,
-                                                   'model': server_model,
-                                                   'frus': {}}
-            
-                for fru_code in self.servers.query('id == @server_code')['powerModules'].iloc[0]:
-                    fru_number = fru_code.replace(server_code, '')
-                    
-                    print(' | {}{}'.format(server_number, fru_number), end='', flush=True)
-
-                    fru_performance, fru_install_date, fru_current_date, fru_operating_time = self.get_fru_performance(fru_code, start_date, end_date, tmo_threshold)
-
-                    site_performance[server_number]['frus'][fru_number] = {'performance': fru_performance,
-                                                                           'install date': fru_install_date,
-                                                                           'current date': fru_current_date,
-                                                                           'operating time': fru_operating_time}
-                print()
-        
-        return site_performance
-
-    # get performance of individual power module and determine start date
-    def get_fru_performance(self, fru_code:str, start_date:date=None, end_date:date=None, tmo_threshold:float=10) -> [DataFrame, date, date, relativedelta]:
-        start_param = '?start={}'.format(start_date.strftime('%Y-%m-%d')) if start_date is not None else ''
-        end_param = '&end={}'.format(end_date.strftime('%Y-%m-%d')) if (start_date is not None) and (end_date is not None) else ''
-        params = '{}{}'.format(start_param, end_param)
-
-        fru_values = {}
-
-        for value in ['power', 'eff']:
-            url = '{endpoint}/pwm/{value}/{fru_code}.json{params}'.format(endpoint=APC.endpoint,
-                                                                            value=value,
-                                                                            fru_code=fru_code,
-                                                                            params=params)
-            fru_value = read_json(url)
-            data_col = {'power': 'dc_kw_ave',
-                        'eff': 'pwm_eff'}[value]
-            div_value = {'power': 1, 'eff': 100}[value]
-            renames = {'dc_kw_ave': 'kw',
-                        'pwm_eff': 'pct'}
-            values = DataFrame(data=fru_value[data_col]).div(div_value).rename(columns=renames)
-
-            values.index = to_datetime(fru_value['ts'])
-            values.index.rename(None, inplace=True)
-
-            fru_values[value] = values
-                    
-        fru_performance = concat(fru_values.values(), axis=1).resample('M').mean()
-
-        # get start date based on increase in TMO from a FRU replacement
-        fru_reset = fru_performance.dropna(subset=['kw']).diff().query('kw > @tmo_threshold')
-        fru_install_date = fru_performance.index.min() if fru_reset.empty else fru_reset.index.max()
-        fru_current_date = fru_performance.index.max()
-        fru_operating_time = relativedelta(fru_performance.index[-1], fru_install_date)
-
-        return fru_performance, fru_install_date, fru_current_date, fru_operating_time
-
 # generic layout for servers
+
 class ServerLayout:
     '''
     Sites start with variable servers and enclosures.
@@ -224,8 +125,121 @@ class NewServers(ServerLayout):
             models = self.server_layout['model'].to_list()
             return models
 
-class RandomLayout:
+class LayoutGenerator:
     def __init__(self, sql_db:SQLDB):
+        self.sql_db = sql_db
+
+# connect to internal Bloom API for site, server and power module performance of fleet
+class APC(LayoutGenerator):
+    url, endpoint = URL.get_apc()
+
+    # check if there is an internet connection
+    def check_internet() -> bool:
+        try:
+            urlopen(APC.url, timeout=5)
+            internet = True
+        except URLError:
+            internet = False
+
+        return internet
+
+    # get Bloom sites, customer names, servers and power modules
+    def get_data(keyword:str) -> DataFrame:
+        keywords = {'sites': 'sites',
+                    'servers': 'energyServers'}
+        print('Connecting to APC for {} data'.format(keyword))
+        url = '{endpoint}/{key}'.format(endpoint=APC.endpoint, key=keywords[keyword])
+        data = read_json(url)
+        return data
+
+    def __init__(self, sql_db:SQLDB):
+        LayoutGenerator.__init__(self, sql_db)
+        self.sites = None
+        self.servers = None
+
+    # check what sites are in the database and add new site codes
+    def add_to_db(self):
+        if APC.check_internet():
+            if self.sites is None: self.sites = APC.get_data('sites')
+
+            apc_sites = self.sites.copy()
+            db_sites = self.sql_db.get_apc_sites()
+
+            missing_sites = apc_sites[apc_sites['id'].isin(apc_sites['id'])][['id', 'customer']].drop_duplicates(subset='id')
+            
+            self.sql_db.add_apc_sites(missing_sites)
+
+    # get performance of each power module at a site
+    def get_site_performance(self, site_code:str, start_date:date=None, end_date:date=None, tmo_threshold:float=10) -> dict:
+        site_performance = {}
+        if APC.check_internet() and ((site_code is not None) and len(site_code)):
+            if self.sites is None: self.sites = APC.get_data('sites')
+            if self.servers is None: self.servers = APC.get_data('servers')
+
+            print('Downloading {} performance from APC'.format(site_code))
+            for server_code in self.servers.query('site == @site_code')['id']:
+                server_number = server_code.replace(site_code, '')
+                server_nameplate = self.servers.query('id == @server_code')['nameplateKw'].squeeze()
+                server_model = self.servers.query('id == @server_code')['type'].squeeze().title()
+
+                site_performance[server_number] = {'nameplate': server_nameplate,
+                                                   'model': server_model,
+                                                   'frus': {}}
+            
+                for fru_code in self.servers.query('id == @server_code')['powerModules'].iloc[0]:
+                    fru_number = fru_code.replace(server_code, '')
+                    
+                    print(' | {}{}'.format(server_number, fru_number), end='', flush=True)
+
+                    fru_performance, fru_install_date, fru_current_date, fru_operating_time = self.get_fru_performance(fru_code, start_date, end_date, tmo_threshold)
+
+                    site_performance[server_number]['frus'][fru_number] = {'performance': fru_performance,
+                                                                           'install date': fru_install_date,
+                                                                           'current date': fru_current_date,
+                                                                           'operating time': fru_operating_time}
+                print()
+        
+        return site_performance
+
+    # get performance of individual power module and determine start date
+    def get_fru_performance(self, fru_code:str, start_date:date=None, end_date:date=None, tmo_threshold:float=10) -> [DataFrame, date, date, relativedelta]:
+        start_param = '?start={}'.format(start_date.strftime('%Y-%m-%d')) if start_date is not None else ''
+        end_param = '&end={}'.format(end_date.strftime('%Y-%m-%d')) if (start_date is not None) and (end_date is not None) else ''
+        params = '{}{}'.format(start_param, end_param)
+
+        fru_values = {}
+
+        for value in ['power', 'eff']:
+            url = '{endpoint}/pwm/{value}/{fru_code}.json{params}'.format(endpoint=APC.endpoint,
+                                                                            value=value,
+                                                                            fru_code=fru_code,
+                                                                            params=params)
+            fru_value = read_json(url)
+            data_col = {'power': 'dc_kw_ave',
+                        'eff': 'pwm_eff'}[value]
+            div_value = {'power': 1, 'eff': 100}[value]
+            renames = {'dc_kw_ave': 'kw',
+                        'pwm_eff': 'pct'}
+            values = DataFrame(data=fru_value[data_col]).div(div_value).rename(columns=renames)
+
+            values.index = to_datetime(fru_value['ts'])
+            values.index.rename(None, inplace=True)
+
+            fru_values[value] = values
+                    
+        fru_performance = concat(fru_values.values(), axis=1).resample('M').mean()
+
+        # get start date based on increase in TMO from a FRU replacement
+        fru_reset = fru_performance.dropna(subset=['kw']).diff().query('kw > @tmo_threshold')
+        fru_install_date = fru_performance.index.min() if fru_reset.empty else fru_reset.index.max()
+        fru_current_date = fru_performance.index.max()
+        fru_operating_time = relativedelta(fru_performance.index[-1], fru_install_date)
+
+        return fru_performance, fru_install_date, fru_current_date, fru_operating_time
+
+class RandomLayout(LayoutGenerator):
+    def __init__(self, sql_db:SQLDB):
+        LayoutGenerator.__init__(self, sql_db)
         self.columns = ['model', 'model_number', 'nameplate', 'filled', 'empty']
         self.sql_db = sql_db
         self.sites = self.get_sites_from_db()

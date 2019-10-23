@@ -1,7 +1,12 @@
 # main script to read inputs, set up structure, run simulation and print results
 
 # inputs
-structure_db = 'sqlite' # remotemysql, mysql or sqlite
+structure_db = {1: 'sqlite-local', # locally stored SQLite
+                2: 'sqlite-network', # network stored SQLite`
+                3: 'remotemysql', # web-based MySQL
+                4: 'mysql', # server-based MySQL
+                }[2]
+
 open_results = True # open Excel file when done running
 
 # built-in imports
@@ -40,7 +45,6 @@ class ServiceModel:
         power and efficiency curves, compatibility, etc, and special threshold
         values.
         '''
-        print('Reading structure database via {}'.format(structure_db))
         sql_db = SQLDB(structure_db)
         thresholds = Thresholds(sql_db.get_thresholds())
         return sql_db, thresholds
@@ -148,7 +152,8 @@ class ServiceModel:
         project, excel_int = ServiceModel.get_project()
         sql_db, thresholds = ServiceModel.get_structure(structure_db)
         details = ServiceModel.get_details(excel_int)
-        apc = APC()
+        apc = APC(sql_db)
+        apc.add_to_db()
 
         ServiceModel.run_scenarios(project, excel_int, details, sql_db, thresholds, apc)
 

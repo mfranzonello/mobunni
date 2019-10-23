@@ -63,7 +63,8 @@ class SQLDB:
     by a minimal number of other classes to prevent too much
     direct touching of the database.
     '''
-    def __init__(self, structure_db: str):
+    def __init__(self, structure_db:str):
+        print('Getting database from {}'.format(structure_db))
         self.engine = create_engine(URL.get_database(structure_db))
         self.connection = self.engine.connect()
 
@@ -373,3 +374,13 @@ class SQLDB:
         escalator = escalators.iloc[-1]['value'] if len(escalators) else nan
         
         return start_value, escalator
+
+    # get sites from APC in database
+    def get_apc_sites(self) -> DataFrame:
+        sql = 'SELECT customer, id FROM APC'
+        sites = read_sql(sql, self.connection)
+        return sites
+
+    # add sites from APC to database
+    def add_apc_sites(self, sites:DataFrame):
+        sites.to_sql('APC', self.connection, if_exists='append', index=False)
