@@ -193,10 +193,8 @@ class ExcelSeer:
         return row
 
     def get_xl_col(self, col_str:str) -> int:
-        col = 0
-        for i in range(len(col_str)):
-            col_add = string.ascii_uppercase.index(col_str)
-            col += col_add * 10**i
+        alphabet_length = len(string.ascii_uppercase)
+        col = sum(alphabet_length**(len(col_str) - i - 1) * (string.ascii_uppercase.index(col_str[i]) + 1) for i in range(len(col_str))) - 1
         return col
 
 # read Excel data into SQL database
@@ -262,7 +260,8 @@ class ExcelInt:
     def __init__(self, project, details_sheet='⚙', scenarios_sheet='📃'):
         self.excel_seer = ExcelSeer(project)
         self.details_sheet = details_sheet
-        self.scenarios_sheets = [sh for sh in self.excel_seer.sheet_names if sh[:len(scenarios_sheet)] == scenarios_sheet]
+        self.scenarios_sheets = [sh for sh in self.excel_seer.sheet_names \
+                                 if (sh[:len(scenarios_sheet)] == scenarios_sheet) and (sh != scenarios_sheet)]
 
     # convert excel float to datetime
     def xldate(self, date_float):

@@ -22,7 +22,7 @@ class Project:
     '''
     folder = r'projects' # input files repository
     start = 'bpm_inputs_' # starting name of input files
-    end = 'xlsx' # input files extension
+    end = 'xls' # input files extension
 
     def __init__(self):
         self.name = None
@@ -37,7 +37,7 @@ class Project:
         root = Tk()
         root.withdraw()
         self.path = filedialog.askopenfilename(initialdir=Project.folder, title='Select scenarios file',
-                                               filetypes=[('BPM inputs', '{start}*.{extension}'.format(start=Project.start, extension=Project.end)),
+                                               filetypes=[('BPM inputs', '{start}*.{extension}*'.format(start=Project.start, extension=Project.end)),
                                                           ('all files', '*.*')])
         if not self.path:
             # no project selected, so quit

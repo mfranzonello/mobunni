@@ -8,7 +8,8 @@ test.py
 bpm.db
 secret.py
 debugging.py
-projects/
+projects/*
+!projects/*template.xls*
 add/
 
 # User-specific files
