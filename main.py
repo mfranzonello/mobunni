@@ -3,8 +3,6 @@
 # inputs
 structure_db = {1: 'sqlite-local', # locally stored SQLite
                 2: 'sqlite-network', # network stored SQLite`
-                3: 'remotemysql', # web-based MySQL
-                4: 'mysql', # server-based MySQL
                 }[2]
 
 open_results = True # open Excel file when done running

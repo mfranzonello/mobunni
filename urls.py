@@ -1,5 +1,4 @@
-# self-defined imports
-from secret import passcodes
+# class for interatcting with networked databases and APIs
 
 class URL:
     databases = {'sqlite-local': {'parameters': {'connector': 'sqlite',
@@ -10,22 +9,6 @@ class URL:
                                                    'database': 'mobunni',
                                                    'path': r'\\Denali\Departments\Marketing\Product_Management\Service Costs'},
                                     'string format': '{connector}:///{path}\{database}.db'},
-                            
-                 'remotemysql': {'parameters': {'connector': 'mysql',
-                                                'username': passcodes['remotemysql']['username'],
-                                                'password': passcodes['remotemysql']['password'],
-                                                'host': 'remotemysql.com',
-                                                'port': '3306',
-                                                'database': passcodes['remotemysql']['username']},
-                                 'string format': '{connector}://{username}:{password}@{host}:{port}/{database}'},
-
-                 'mysql': {'parameters': {'connector': 'mysql',
-                                          'username': passcodes['mysql']['username'],
-                                          'password': passcodes['mysql']['password'],
-                                          'host': '127.0.0.1',
-                                          'port': '3306',
-                                          'database': 'servicecosts'},
-                           'string format': '{connector}://{username}:{password}@{host}:{port}/{database}'},
                  }
 
     apc_tmo = {'host': 'https://tmo-portal.ionamerica.priv',
