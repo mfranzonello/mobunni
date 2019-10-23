@@ -286,7 +286,7 @@ class Site:
         return
         
     # move FRUs between enclosures
-    def swap_frus(self, server_1, enclosure_1, server_2, enclosure_2):
+    def swap_frus(self, server_1, enclosure_1, server_2, enclosure_2, ceiling_loss_threshold=None):
         # starting ceiling loss
         ceiling_loss_start = self.get_site_ceiling_loss()
         
@@ -300,16 +300,20 @@ class Site:
         # ending ceiling loss
         ceiling_loss_end = self.get_site_ceiling_loss()
 
-        reason = 'minimizing ceiling loss from {:0.1f}kw to {:0.1f}kw'.format(ceiling_loss_start, ceiling_loss_end)
+        ceiling_loss_gain = ceiling_loss_start - ceiling_loss_end
+        if (ceiling_loss_threshold is not None) and (ceiling_loss_gain < ceiling_loss_threshold):
+            # swap back
+            _ = self.replace_fru(server_1, enclosure_1, fru_1)
+            _ = self.replace_fru(server_2, enclosure_2, fru_2)
+        
+        else:
+            reason = 'minimizing ceiling loss from {:0.1f}kw to {:0.1f}kw'.format(ceiling_loss_start, ceiling_loss_end)
+            # record movements
+            if fru_1:
+                self.shop.balance_frus(fru_1, self.number, server_1, enclosure_1, server_2, enclosure_2, reason=reason)
 
-        # record movements
-        if fru_1:
-            self.shop.balance_frus(fru_1, self.number, server_1, enclosure_1, server_2, enclosure_2, reason=reason)
-
-        if fru_2:
-            self.shop.balance_frus(fru_2, self.number, server_2, enclosure_2, server_1, enclosure_1, reason=reason)
-
-        return fru_1, fru_2
+            if fru_2:
+                self.shop.balance_frus(fru_2, self.number, server_2, enclosure_2, server_1, enclosure_1, reason=reason)
 
     # swap FRU and send old one to shop (if not empty)
     def replace_fru(self, server_number, enclosure_number, fru):
@@ -329,7 +333,7 @@ class Site:
             [(server_1, enclosure_1), (server_2, enclosure_2)] = swaps['balance swap']
 
             # swap frus
-            fru_1, fru_2 = self.swap_frus(server_1, enclosure_1, server_2, enclosure_2)
+            self.swap_frus(server_1, enclosure_1, server_2, enclosure_2, ceiling_loss_threshold=self.shop.thresholds['ceiling loss'])
 
     def replace_and_balance(self, server_n, enclosure_n, new_fru, reason=None):
         # there is a FRU that meets ceiling loss requirements

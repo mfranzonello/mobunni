@@ -33,9 +33,13 @@ class Cash:
         first_columns = ['year', 'fru replacement schedule']
         cost_columns = {'fru costs': ['fru replacement costs',
                                       'fru repair costs',
-                                      'fru deployment costs'],
+                                      'fru overhaul costs',
+                                      'fru deployment costs',
+                                      'component costs',
+                                      ],
                         'non-fru costs': ['department spend',
-                                          'other maintenance']}
+                                          'other maintenance',
+                                          ]}
         last_columns = ['total costs', '$/kW']
 
 
@@ -55,10 +59,14 @@ class Cash:
             cash_flow.loc[:, 'fru replacement costs'] = dollars['created FRU'].values
         if 'repaired FRU' in dollars.columns:
             cash_flow.loc[:, 'fru repair costs'] = dollars['repaired FRU'].values
-
-        for sub_col in ['deployed FRU', 'stored FRU']:
+        if 'overhauled FRU' in dollars.columns:
+            cash_flow.loc[:, 'fru overhaul costs'] = dollars['repaired FRU'].values
+        for sub_col in ['deployed FRU', 'stored FRU', 'pulled FRU', 'moved FRU']:
             if sub_col in dollars.columns:
                 cash_flow.loc[:, 'fru deployment costs'] += dollars[sub_col].values
+        for sub_col in ['upgraded ES', 'increased ENC']:
+            if sub_col in dollars.columns:
+                cash_flow.loc[:, 'component costs'] += dollars[sub_col].values
 
         # get non-FRU costs (from per MW)
         for sub_col in cost_columns['non-fru costs']:
@@ -80,5 +88,7 @@ class Cash:
         # transpose
         cash_flow = cash_flow.query('year in @years').T
         cash_flow.columns = range(1, cash_flow.shape[-1] + 1)
+
+        cash_flow = cash_flow.dropna(how='all').fillna(0)
 
         return cash_flow

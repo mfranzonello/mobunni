@@ -257,7 +257,7 @@ class Inspector:
         for server in site.get_servers():
             for enclosure in server.enclosures:
                 if enclosure.is_filled() and enclosure.fru.is_deviated(site.shop.thresholds['deviated']):
-                    reason = 'deviated by {:0.02%}'.format(enclosure.fru.get_deviation())
+                    reason = 'deviated by {:0.1f}kw'.format(enclosure.fru.get_deviation())
                     # FRU must be repaired
                     # pull the old FRU
                     old_fru = site.replace_fru(server.number, enclosure.number, None)
@@ -424,7 +424,7 @@ class Inspector:
             # replace an inefficient FRU with a similar model
             replacing_fru = server.enclosures[enclosure_e].fru
 
-            if replacing_fru.is_dead():
+            if replacing_fru.is_dead() or (replacing_fru.get_expected_life() == 0):
                 # FRU is already dead
                 new_fru = site.shop.get_best_fit_fru(server.model, site.get_date(), site.number, server_e, enclosure_e,
                                                      efficiency_needed=efficiency_needed, reason=reason)
@@ -440,7 +440,7 @@ class Inspector:
 
         else:
             # put in a brand new FRU
-            new_fru = site.shop.get_best_fit_fru(server.model, site.get_date(), site.number, server_e, enclosure_e, initial=True, reason=reason)
+            new_fru = site.shop.get_best_fit_fru(server.model, site.get_date(), site.number, server_e, enclosure_e, reason=reason)
 
             site.replace_fru(server_e, enclosure_e, new_fru)
             

@@ -1,22 +1,41 @@
 # contracts
 
+# self-defined imports
+from structure import SQLDB
+
 # collection of contracts across sites
 class Portfolio:
-    def __init__(self):
+    limits_values = ['PTMO', 'WTMO', 'CTMO', 'Peff', 'Weff', 'Ceff', 'window']
+    def __init__(self, sql_db:SQLDB):
         self.contracts = []
         self.number = 0
+        self.sql_db = sql_db
 
-    def generate_contract(self, deal, length, target_size, start_date, start_month,
-                 non_replace, limits):
+    def get_number(self):
         self.number += 1
-        contract = Contract(self.number, deal, length, target_size, start_date, start_month,
+        number = self.number
+        return number
+
+    def generate_contract(self, target_size, start_date, start_month, non_replace,
+                          deal=None, length=None, limits=None):
+
+        number = self.get_number()
+
+        if deal is None:
+            contract_values = self.sql_db.get_contract()
+            deal = contract_values.get('deal', 'CapEx')
+            length = contract_values.get('length', 10)
+            limits = {lv: contract_values.get(lv) for lv in Portfolio.limits_values}
+
+        contract = Contract(number, deal, length, target_size, start_date, start_month,
                             non_replace, limits)
         self.contracts.append(contract)
+
         return contract
 
 # legal commitments for a site or group of sites
 class Contract:
-    limits_values = ['PTMO', 'WTMO', 'CTMO', 'Peff', 'Weff', 'Ceff', 'window']
+    limits_values = Portfolio.limits_values
     def __init__(self, number, deal, length, target_size, start_date, start_month,
                  non_replace, limits):
         self.number = number

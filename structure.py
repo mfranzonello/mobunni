@@ -1,5 +1,9 @@
 # project selection and functions to read and write database and Excel data
 
+# built-in imports
+from dateutil.relativedelta import relativedelta
+from random import random
+
 # add-in imports
 from pandas import DataFrame, Timestamp, read_sql, to_numeric, merge
 from numpy import nan
@@ -96,8 +100,9 @@ class SQLDB:
     # find the alternative name of an internal server name
     def get_alternative_server_model(self, server_model:str) -> str:
         sql = 'SELECT server FROM Compatibility WHERE server = module'
-        names = read_sql(sql, self.connection)
-        if server_model in names:
+        names = read_sql(sql, self.connection)['server'].squeeze()
+
+        if server_model in names.to_list():
             # server is correct name
             alternative = server_model
         else:
@@ -169,13 +174,14 @@ class SQLDB:
     # select initial efficiency of power module
     def get_module_efficiency(self, model, mark, model_number):
         sql = 'SELECT pct FROM EfficiencyCurve WHERE (model = "{}") and (mark = "{}") and (model_number = "{}") and (month = 1)'.format(model, mark, model_number)
-        rating = read_sql(sql, self.connection).iloc[0].squeeze()
+        efficiency = read_sql(sql, self.connection).iloc[0].squeeze()
         return efficiency
 
-    # select stacks of initial build power module
+    # select stacks of power module
     def get_module_stacks(self, model, mark, model_number):
         sql = 'SELECT stacks FROM Module WHERE (model = "{}") and (mark = "{}") and (model_number = "{}")'.format(model, mark, model_number)
-        stacks = read_sql(sql, self.connection).iloc[0].squeeze()
+        stacks = read_sql(sql, self.connection).iloc[0].squeeze().split(',')
+        stacks = [int(stack) for stack in stacks]
         return stacks
 
     # select enclosure compatible with energy server
@@ -198,6 +204,25 @@ class SQLDB:
         server_nameplates = server_details.drop('standard', axis='columns').sort_values('nameplate', ascending=False)
 
         return server_nameplates
+
+    # try to find a model that matches a partial number
+    def get_guessed_server_model(self, server_model_guess, site_size):
+        sql = 'SELECT model, model_number, nameplate, standard FROM Server WHERE model_number LIKE "{}%"'.format(server_model_guess)
+        server_details = read_sql(sql, self.connection)
+
+        guess = server_details.query('model_number.str.startswith(@server_model_guess)', engine='python')
+        guess.loc[:, 'div'] = guess['nameplate'].rdiv(site_size)
+        guess.loc[:, 'fit'] = guess['div'].sub(guess['div'].astype(int))
+        guess.sort_values(['fit', 'standard'], ascending=[True, False], inplace=True)
+
+        if not guess.empty:
+            # value found
+            server_model_number = guess['model_number'].iloc[0]
+        else:
+            # pick randomly
+            server_model_number = self.get_table('Server').sample(1)['model_number'].iloc[0]
+
+        return server_model_number
 
     # select server model based on model number or model class + nameplate
     def get_server_model(self, server_model_number=None, server_model_class=None, nameplate_needed=0, n_enclosures=None):
@@ -234,10 +259,17 @@ class SQLDB:
         return server_model
 
     # select power modules avaible to create at a date
-    def get_buildable_modules(self, install_date, server_model=None, allowed=None, wait_period=None):
-        availability_date = install_date if wait_period is None else install_date + wait_period
-        sql = 'SELECT model, mark, model_number FROM Module WHERE initial_date <= "{}"'.format(availability_date) ## AND NOT bespoke
-        buildable_modules = read_sql(sql, self.connection)
+    def get_buildable_modules(self, install_date, server_model=None, allowed=None, wait_period=False):
+        sql = 'SELECT model, mark, model_number, initial_date FROM Module WHERE initial_date <= "{}"'.format(install_date) #avaibility_date
+        buildable_modules = read_sql(sql, self.connection, parse_dates=['initial_date'])
+        
+        if wait_period:
+            sql = 'SELECT * FROM Timeline'
+            timeline = read_sql(sql, self.connection)
+            buildable_modules['availability_year'] = buildable_modules['initial_date'].apply(lambda x: min(timeline['year'].max(), relativedelta(install_date, x).years + 1))
+            buildable_modules = buildable_modules.merge(timeline, how='left', left_on='availability_year', right_on='year').query('availability >= @random()').drop(columns=['availability', 'availability_year'])
+
+        buildable_modules.drop(columns=['initial_date'], inplace=True)
 
         sql = 'SELECT DISTINCT model, mark, model_number FROM PowerCurve'
         power_modules = read_sql(sql, self.connection)
@@ -309,6 +341,17 @@ class SQLDB:
         system_sizes = systems['system_size']
         system_dates = systems['full_power_date']
         return system_sizes, system_dates
+
+    # get contract values
+    def get_contract(self, contract_number=None):
+        if contract_number is None:
+            sql = 'SELECT DISTINCT number FROM Contract'
+            contract_number = read_sql(sql, self.connection).sample(1)['number']
+
+        sql = 'SELECT * FROM Contract WHERE number = "{}"'.format(contract_number)
+        contract = read_sql(sql, self.connection).drop_duplicates(subset=['number', 'requirement']).set_index('requirement')['value']
+
+        return contract
 
     # get line items for cash flow
     def get_line_item(self, item, date, escalator_basis=None):

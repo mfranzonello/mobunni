@@ -227,10 +227,10 @@ class ExcelSQL:
 
 # read in Excel file for project inputs
 class ExcelInt:
-    def __init__(self, project, details_sheet='details', scenarios_sheet='scenario'):
+    def __init__(self, project, details_sheet='⚙', scenarios_sheet='📃'):
         self.excel_seer = ExcelSeer(project)
         self.details_sheet = details_sheet
-        self.scenarios_sheets = [sh for sh in self.excel_seer.sheet_names if scenarios_sheet in sh]
+        self.scenarios_sheets = [sh for sh in self.excel_seer.sheet_names if sh[:len(scenarios_sheet)] == scenarios_sheet]
 
     # convert excel float to datetime
     def xldate(self, date_float):
@@ -285,8 +285,8 @@ class ExcelInt:
         
         keys = {'ctmo_limit': self.floater, 'wtmo_limit': self.floater, 'ptmo_limit': self.floater,
                 'ceff_limit': self.floater, 'weff_limit': self.floater, 'peff_limit': self.floater, 'window': self.inter,
-                'start_date': self.xldate, 'contract_length': int,
-                'site_code': str,
+                'start_date': self.xldate, 'contract_length': int, 'contract_deal': str,
+                'site_code': str, 'multiplier': self.floater,
                 'allow_repairs': bool, 'allow_redeploy': bool, 'use_best_only': bool,
                 'allow_early_deploy': bool, 'eoc_replacements': bool,
                 }
@@ -297,12 +297,16 @@ class ExcelInt:
         values_tables = self.get_sheet_tables(scenario_name, tables)
 
         [ctmo_limit, wtmo_limit, ptmo_limit, ceff_limit, weff_limit, peff_limit, window,
-         start_date, contract_length,
-         site_code,
+         start_date, contract_length, contract_deal,
+         site_code, multiplier,
          repair, redeploy, best, early_deploy, eoc_deploy,
          ] = values_keys
 
         [non_replace, servers, roadmap] = values_tables
+
+        # get rid of spaces in column names
+        for vt in [non_replace, servers, roadmap]:
+            vt.rename(columns={c: c.replace(' ', '_') for c in vt.columns}, inplace=True)
 
         limits = {'CTMO': ctmo_limit, 'WTMO': wtmo_limit, 'PTMO': ptmo_limit,
                   'Ceff': ceff_limit, 'Weff': weff_limit, 'Peff': peff_limit,
@@ -310,11 +314,12 @@ class ExcelInt:
         
         # set non_replace to empty dataframe if blank
         non_replace.dropna(inplace=True)
-
+        
         # drop totals row and empty rows from servers
         servers = servers.iloc[:-1].dropna(subset=['model', 'model_number'])
 
         # set tech roadmap to default if blank
+        roadmap.rename
         if roadmap['model'].dropna().empty:
             roadmap = None
         
@@ -322,8 +327,8 @@ class ExcelInt:
         if repair is None:
             repair = False
 
-        return scenario_name, limits, start_date, contract_length, non_replace, \
-            site_code, servers, roadmap, \
+        return scenario_name, limits, start_date, contract_length, contract_deal, non_replace, \
+            site_code, servers, roadmap, multiplier, \
             repair, redeploy, best, early_deploy, eoc_deploy
 
     # total number of scenarios to explore

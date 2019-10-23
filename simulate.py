@@ -12,6 +12,7 @@ from properties import Site
 from operations import Shop, Fleet
 from legal import Portfolio
 from finances import Cash
+from layout import RandomLayout
 
 # details specific to scenario
 class Scenario:
@@ -79,7 +80,7 @@ class Simulation:
 
         self.inputs = scenario.get_inputs(details, thresholds)
 
-        self.portfolio = Portfolio()
+        self.portfolio = Portfolio(self.sql_db)
         self.cash = Cash(self.sql_db)
 
         self.size = 0
@@ -101,7 +102,7 @@ class Simulation:
         return fleet, shop
        
     # create a site at the beginning of a phase
-    def set_up_site(self, fleet, month):
+    def set_up_site(self, fleet, month, random_layout):
         site_number = len(fleet.sites)
         if site_number == fleet.target_site:
             site_name = '{} (TARGET)'.format(self.scenario.technology.site_name)
@@ -111,30 +112,41 @@ class Simulation:
 
         # pick site size according to distribution for all but one specific site
         site_size = fleet.install_sizes[site_number]
-        print(' | {}kW'.format(site_size))
 
+        multiplier = self.scenario.technology.multiplier if site_number == fleet.target_site else 1
+        print(' | {:0.1f}kW'.format(site_size * multiplier))
+
+        # update
         site_start_date = self.scenario.commitments.start_date + relativedelta(months=month)
-
-        ## update
-        site_limits = self.scenario.commitments.limits
         site_start_month = self.scenario.commitments.start_month ##
-        site_deal = 'CapEx' # 'PPA'
-        site_length = self.scenario.commitments.length
         site_non_replace = self.scenario.commitments.non_replace
 
-        # update contract
-        contract = self.portfolio.generate_contract(site_deal, site_length, site_size, site_start_date, site_start_month,
-                                                    site_non_replace, site_limits)
+        # set up contract
+        if (site_number == fleet.target_site):
+            site_deal = self.scenario.commitments.deal
+            site_length = self.scenario.commitments.length
+            site_limits = self.scenario.commitments.limits
+        
+        else:
+            site_deal, site_length, site_limits = [None]*3
+
+        contract = self.portfolio.generate_contract(site_size, site_start_date, site_start_month, site_non_replace,
+                                                    site_deal, site_length, site_limits)
         site = Site(site_number, fleet.shop, contract)
 
-        if (site_number == fleet.target_site) and self.scenario.technology.has_existing_servers():
-            # target site has exisitng servers
-            site.populate(existing_servers=self.scenario.technology.existing_servers)
+        if (site_number == fleet.target_site):
+            if self.scenario.technology.has_existing_servers():
+                # target site has exisitng servers
+                site.populate(existing_servers=self.scenario.technology.existing_servers)
+            else:
+                site.populate(new_servers=self.scenario.technology.new_servers)
+
+            self.size = site.get_system_size()
+
         else:
             # build site from scratch
-            site.populate(new_servers=self.scenario.technology.new_servers if (site_number == fleet.target_site) else None)
-
-        self.size = site.get_system_size()
+            random_servers = random_layout.get_site_layout()
+            site.populate(new_servers=random_servers)
 
         return site
 
@@ -184,42 +196,45 @@ class Simulation:
         else:
             for run_n in range(self.details.n_runs):
                 print('Simulation {}'.format(run_n+1))
+                self.run_iteration()
 
-                # create fleet related objects
-                fleet, shop = self.set_up_fleet()
+    # run just one
+    def run_iteration(self):
+        # create fleet related objects
+        fleet, shop = self.set_up_fleet()
+        random_layout = RandomLayout(self.sql_db)
 
-                # run through all contracts
-                for month in range(self.scenario.commitments.length*12 + fleet.target_month + 1):
+        # run through all contracts
+        for month in range(self.scenario.commitments.length*12 + fleet.target_month + 1):
 
-                    # install site at sampled months
-                    for site_n in range(fleet.get_install_count(month)):
-                        site = self.set_up_site(fleet, month)
+            # install site at sampled months
+            for site_n in range(fleet.get_install_count(month)):
+                site = self.set_up_site(fleet, month, random_layout)
 
-                        fleet.add_site(site)
-
+                fleet.add_site(site)
                         
-                    for site in fleet.sites:
-                        # check site status and move FRUs as required
-                        decommissioned = self.inspect_site(fleet, site)
+            for site in fleet.sites:
+                # check site status and move FRUs as required
+                decommissioned = self.inspect_site(fleet, site)
 
-                        if decommissioned:
-                            fleet.remove_site(site)
+                if decommissioned:
+                    fleet.remove_site(site)
                    
-                    # make units in shop deployable.phases
-                    fleet.shop.advance()
+            # make units in shop deployable.phases
+            fleet.shop.advance()
 
-                # get value of remaining FRUs
-                fleet.shop.salvage_frus()
+        # get value of remaining FRUs
+        fleet.shop.salvage_frus()
 
-                # store results
-                self.append_summaries(fleet)
+        # store results
+        self.append_summaries(fleet)
             
-                # print simulation update
-                cost_tables = self.get_costs(last=True)
-                print('Cost $')
-                print(cost_tables['dollars'])
-                print('Cost #')
-                print(cost_tables['quants'])
+        # print simulation update
+        cost_tables = self.get_costs(last=True)
+        print('Cost $')
+        print(cost_tables['dollars'])
+        print('Cost #')
+        print(cost_tables['quants'])
 
     # average the run performance
     def get_site_performance(self):
@@ -262,6 +277,9 @@ class Simulation:
     # pivot and get cost totals
     def pivot_and_total(self, costs, index, columns, values, years=None, year_col='year', yearly=False):
         cost_table = costs.pivot(index=index, columns=columns, values=values)
+
+        non_year_columns = [c for c in cost_table.columns if c != year_col]
+        cost_table.loc[:, non_year_columns] = cost_table[non_year_columns].mul(self.scenario.technology.multiplier)
 
         if yearly:
             cost_table.loc[:, 'total'] = cost_table.sum('columns')

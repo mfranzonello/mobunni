@@ -1,16 +1,24 @@
 # definitions for power and efficiency curves, power modules, hot boxes and energy servers
 
+# built-in imports
+from typing import Union
+from datetime import date
+from dateutil.relativedelta import relativedelta
+
 # add-on imports
 from pandas import DataFrame, Series, concat
 from numpy import random as nprandom
 
+# self-defined imports
+from structure import SQLDB
+
 class Curves:
-    def __init__(self, curves):
+    def __init__(self, curves:DataFrame):
         self.curves = curves
 
 # power curves for a model type
 class PowerCurves(Curves):
-    def __init__(self, curves):
+    def __init__(self, curves:DataFrame):
         Curves.__init__(self, curves)
         self.percentiles = curves.columns.to_list()
         
@@ -22,7 +30,7 @@ class PowerCurves(Curves):
         self.probabilities = self.get_probabilities(self.percentiles)
 
     # calculate probability of each percentile
-    def get_probabilities(self, percentiles):
+    def get_probabilities(self, percentiles:list) -> Series:
         probabilities = DataFrame(data=[0] + percentiles, columns=['percentile'])
         probabilities.loc[0, 'top'] = 0
 
@@ -36,12 +44,12 @@ class PowerCurves(Curves):
         return probabilities
 
     # checks if allowed parameter is an extrema
-    def is_extrema(self, allowed):
+    def is_extrema(self, allowed:Union[str, list]) -> bool:
         extrema = (type(allowed) is str) and (allowed in self.extrema)
         return extrema
 
     # return range of curves probable based on current observation
-    def get_allowed_curves(self, allowed=[0, 1], fit=None, stack_reducer=1):
+    def get_allowed_curves(self, allowed:Union[str, list]=[0, 1], fit:dict=None, stack_reducer:float=1) -> DataFrame:
         if fit is None:
             # new FRU
             
@@ -70,38 +78,18 @@ class PowerCurves(Curves):
 
             allowed_curves = DataFrame(data=[fit['performance']['kw'].to_list() + self.curves.loc[max_operating_time:, c].to_list() for c in filtered_curves],
                                         index=filtered_curves).T
-
-            ##elif ('operating time' in fit) and ('current power' in fit):
-            ##    # blind to starting curve
-            ##    expected_range = self.curves.mul(stack_reducer).loc[max_operating_time]
-            ##    observed_power = fit['current power']
-
-            ##    if observed_power > expected_range.max():
-            ##        # operating better than expected, so choose ideal curve
-            ##        allowed_curves = self.get_allowed_curves(allowed='ideal').copy()
-
-            ##    elif observed_power < expected_range.min():
-            ##        # operating worse than expected, so choose worst curve and scale down
-            ##        allowed_curves = self.get_allowed_curves(allowed='worst').copy()
-            ##        allowed_curves.loc[0:, :] *= (observed_power / expected_range.min())
-
-            ##    else:
-            ##        # operating in expected range, so choose from range of possibilities
-            ##        allowed_curves = self.curves[\
-            ##            ((self.curves.loc[max_operating_time] >= fit['current power']) & \
-            ##             (self.curves.loc[max_operating_time] <= fit['current power'])).index]
         
         return allowed_curves
         
     # normalize probabilities for percentile selection
-    def normalize_probabilties(self, percentiles):
+    def normalize_probabilties(self, percentiles:list) -> list:
         probabilities = self.probabilities.loc[percentiles]
 
         probabilities_normalized = [p/probabilities.sum() for p in probabilities]
         return probabilities_normalized
 
     # pick power curve for power module
-    def pick_curve(self, allowed=[0, 1], fit=None, stack_reducer=1):
+    def pick_curve(self, allowed:Union[str, list]=[0, 1], fit:dict=None, stack_reducer:float=1) -> Series:
         allowed_curves = self.get_allowed_curves(allowed, fit)
 
         probabilities_normalized = self.normalize_probabilties(allowed_curves.columns)
@@ -115,7 +103,7 @@ class PowerCurves(Curves):
         return curve
 
     # get expected power curve of a power module
-    def get_expected_curve(self, fit=None, stack_reducer=1):
+    def get_expected_curve(self, fit:Union[str, list]=None, stack_reducer:float=1) -> Series:
         allowed_curves = self.get_allowed_curves(fit=fit, stack_reducer=stack_reducer)
         probabilities_normalized = self.normalize_probabilties(allowed_curves.columns)
 
@@ -125,7 +113,7 @@ class PowerCurves(Curves):
         return expected_curve
 
     # get expected energy for time period
-    def get_expected_energy(self, fit=None, time_needed=0, stack_reducer=1):
+    def get_expected_energy(self, fit:Union[str, list]=None, time_needed:int=0, stack_reducer:float=1) -> float:
         expected_curve = self.get_expected_curve(fit, stack_reducer)
 
         operating_time = 0 if fit is None else fit['operating time']
@@ -140,7 +128,7 @@ class EfficiencyCurves(Curves):
     def __init__(self, curves):
         self.curves = curves
 
-    def pick_curve(self, fit=None):
+    def pick_curve(self, fit:Union[str, list]=None) -> Series:
         if (fit is not None) and (('performance' in fit) and ('operating time' in fit)):
             # pulled from API
             curve = Series(data=fit['performance']['pct'].to_list() + self.curves.loc[fit['operating time']:].to_list())
@@ -151,16 +139,16 @@ class EfficiencyCurves(Curves):
         return curve
 
 class DataSheets:
-    def __init__(self, sql_db):
+    def __init__(self, sql_db:SQLDB):
         self.sql_db = sql_db
 
     # get alternative name for special servers
-    def get_alternative_model(self, server_model):
+    def get_alternative_model(self, server_model:str) -> str:
         alternative_name = self.sql_db.get_alternative_server_model(server_model)
         return alternative_name
 
     # get power modules that work with energy server
-    def get_compatible_modules(self, server_model):
+    def get_compatible_modules(self, server_model:str) -> Series:
         allowed_modules = self.sql_db.get_compatible_modules(server_model)
         return allowed_modules
 
@@ -170,14 +158,15 @@ class PowerModules(DataSheets):
         DataSheets.__init__(self, sql_db)
 
     # get power and efficiency curves
-    def get_curves(self, model, mark, model_number):
+    def get_curves(self, model:str, mark:str, model_number:str) -> [PowerCurves, EfficiencyCurves]:
         power_curves = PowerCurves(self.sql_db.get_power_curves(model, mark, model_number))
         efficiency_curves = EfficiencyCurves(self.sql_db.get_efficiency_curve(model, mark, model_number))
         return power_curves, efficiency_curves
 
     # find best new power module available
-    def get_model(self, install_date, wait_period=None, power_needed=0, max_power=None, energy_needed=0, time_needed=0, best=False,
-                  server_model=None, roadmap=None, match_server_model=False):
+    def get_model(self, install_date:date, wait_period:bool=False,
+                  power_needed:float=0, max_power:float=None, energy_needed:float=0, time_needed:int=0, best:bool=False,
+                  server_model:str=None, roadmap:DataFrame=None, match_server_model:bool=False) -> [str, str, str]:
 
         # establish technology roadmap
         if roadmap is None:
@@ -186,7 +175,7 @@ class PowerModules(DataSheets):
             allowed = roadmap
 
         # make sure the roadmap allows for the server type
-        server_model = self.get_alternative_model('server_model')
+        server_model = self.get_alternative_model(server_model)
         allowed = allowed.append(self.sql_db.get_default_modules().query('model == @server_model')).drop_duplicates()
 
         # get modules that are compatible and available
@@ -242,12 +231,6 @@ class PowerModules(DataSheets):
         rating = self.sql_db.get_module_rating(model, mark, model_number)
         return rating
 
-    # return initial power rating of all marks of a module
-    def get_ratings(self, model, install_date):
-        marks = self.get_marks(model, install_date)
-        ratings = [self.get_rating(model, mark) for mark in marks]
-        return ratings
-
     # return expected energy output of a given model
     def get_energy(self, model, mark, model_number, time_needed):
         curves = PowerCurves(self.sql_db.get_power_curves(model, mark, model_number))
@@ -255,46 +238,30 @@ class PowerModules(DataSheets):
         energy = curves.get_expected_energy(time_needed=time_needed)
         return energy
 
-    # return expected energy output of all model versions of a module
-    def get_energies(self, model, mark, install_date, time_needed):
-        model_numbers = self.sql_db.get_module_model_numbers(model, mark)
-        energies = [self.get_energy(model, mark, model_number, time_needed) for model_number in model_numbers]
-        return energies
-
     # return initial efficiency contribution of a given module
     def get_efficiency(self, model, mark, model_number):
         efficiency = self.sql_db.get_module_efficiency(model, mark, model_number)
         rating = self.sql_db.get_module_rating(model, mark, model_number)
         efficiency = efficiency * rating
-        return efficienc
+        return efficiency
 
-    # return initial efficiency contribution of all model versions of a module
-    def get_energies(self, model, mark, install_date, time_needed):
-        model_numbers = self.sql_db.get_module_model_numbers(model, mark)
-        efficiencies = [self.get_efficiencies(model, mark, model_number) for model_number in model_numbers]
-        return efficiencies
-
-    # return initial power rating of a given module
+    # return stacks of a given module
     def get_stacks(self, model, mark, model_number):
-        rating = self.sql_db.get_module_stacks(model, mark, model_number)
-        return rating
+        stacks = self.sql_db.get_module_stacks(model, mark, model_number)
+        return stacks
 
 # details of energy enclosures
 class HotBoxes(DataSheets):
     def __init__(self, sql_db):
         DataSheets.__init__(self, sql_db)
 
-    def get_model_number(self, server_model):
-        model_number, _ = self.sql_db.get_enclosure_model_number(server_model)
-        return model_number
+    def get_model_details(self, server_model):
+        model_number, nameplate = self.sql_db.get_enclosure_model_number(server_model)
+        return model_number, nameplate
     
-    def get_nameplate(self, server_model):
-        _, nameplate = self.sql_db.get_enclosure_model_number(server_model)
-        return nameplate
-
 # details of energy servers
 class EnergyServers(DataSheets):
-    def __init__(self, sql_db):
+    def __init__(self, sql_db:SQLDB):
         DataSheets.__init__(self, sql_db)
 
     # get base model of a server model number
@@ -305,11 +272,11 @@ class EnergyServers(DataSheets):
         return server_model
 
     # get lasted server model class
-    def get_latest_server_model(self, install_date, target_model):
+    def get_latest_server_model(self, install_date:date, target_model:str) -> str:
         latest_server_model_class = self.sql_db.get_latest_server_model(install_date, target_model=target_model)
         return latest_server_model_class
         
     # get default nameplate sizes   
-    def get_server_nameplates(self, latest_server_model_class, target_size):
+    def get_server_nameplates(self, latest_server_model_class:str, target_size:float) -> DataFrame:
         server_nameplates = self.sql_db.get_server_nameplates(latest_server_model_class, target_size)
         return server_nameplates

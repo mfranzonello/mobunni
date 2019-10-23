@@ -1,16 +1,22 @@
 # API connections
 
 # built-in imports
-from datetime import datetime
+from datetime import date
 from dateutil.relativedelta import relativedelta
 from urllib.request import urlopen
 from urllib.error import URLError
 
 # add-on imports
-from pandas import read_json, isna, concat, DataFrame, to_datetime
+from pandas import read_json, isna, concat, DataFrame, Series, to_datetime
 
 # self-defined imports
 from urls import URL
+from properties import Site
+from structure import SQLDB
+
+class LayoutGenerator:
+    def __init__(self, sites:Site):
+        self.sites = sites
 
 # connect to internal Bloom API for site, server and power module performance of fleet
 class APC:
@@ -27,7 +33,7 @@ class APC:
         return internet
 
     # get Bloom sites, customer names, servers and power modules
-    def get_data(keyword):
+    def get_data(keyword:str) -> DataFrame:
         keywords = {'sites': 'sites',
                     'servers': 'energyServers'}
         print('Connecting to APC for {} data'.format(keyword))
@@ -40,7 +46,7 @@ class APC:
         self.servers = None
 
     # get performance of each power module at a site
-    def get_site_performance(self, site_code, start_date=None, end_date=None, tmo_threshold=10):
+    def get_site_performance(self, site_code:str, start_date:date=None, end_date:date=None, tmo_threshold:float=10) -> dict:
         site_performance = {}
         if APC.check_internet() and ((site_code is not None) and len(site_code)):
             if self.sites is None: self.sites = APC.get_data('sites')
@@ -72,7 +78,7 @@ class APC:
         return site_performance
 
     # get performance of individual power module and determine start date
-    def get_fru_performance(self, fru_code, start_date=None, end_date=None, tmo_threshold=10):
+    def get_fru_performance(self, fru_code:str, start_date:date=None, end_date:date=None, tmo_threshold:float=10) -> [DataFrame, date, date, relativedelta]:
         start_param = '?start={}'.format(start_date.strftime('%Y-%m-%d')) if start_date is not None else ''
         end_param = '&end={}'.format(end_date.strftime('%Y-%m-%d')) if (start_date is not None) and (end_date is not None) else ''
         params = '{}{}'.format(start_param, end_param)
@@ -113,16 +119,16 @@ class ServerLayout:
     Sites start with variable servers and enclosures.
     If there are servers, then the layout exists.
     '''
-    def __init__(self, server_layout):
-        self.server_layout = server_layout if len(server_layout) else None
+    def __init__(self, server_layout:DataFrame):
+        self.server_layout = server_layout if ((server_layout is not None) and len(server_layout)) else None
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         repr_string = '\n'.join(' |'.join(' {}.{}'.format(server_number, fru_number) \
             for fru_number in self.get_enclosure_numbers(server_number)) for server_number in self.get_server_numbers())
         return repr_string
 
     # layout existence
-    def exist(self):
+    def exist(self) -> bool:
         exists = self.server_layout is not None
         return exists
 
@@ -135,7 +141,7 @@ class ExistingServers(ServerLayout):
     def __init__(self, server_layout):
         ServerLayout.__init__(self, server_layout)
 
-    def __getitem__(self, number):
+    def __getitem__(self, number) -> DataFrame:
         if type(number) in [str, int]:
             server_number = number
             item = self.server_layout[server_number]
@@ -146,7 +152,7 @@ class ExistingServers(ServerLayout):
             item = None
         return item
 
-    def get_size(self):
+    def get_size(self) -> float:
         if self.exist():
             size = sum([self.server_layout[server]['nameplate'] for server in self.get_server_numbers()])
         else:
@@ -154,7 +160,7 @@ class ExistingServers(ServerLayout):
 
         return size
 
-    def get_dates(self):
+    def get_dates(self) -> [date, int]:
         if self.exist():
             install_date = min([self.server_layout[server]['frus'][fru]['install date'] for server in self.get_server_numbers() \
                                 for fru in self.get_enclosure_numbers(server)]).date()
@@ -169,17 +175,17 @@ class ExistingServers(ServerLayout):
 
         return install_date, start_month
 
-    def get_models(self):
+    def get_models(self) -> [str]:
         if self.exist():
             models = [self.server_layout[server]['model'] for server in self.get_server_numbers()]
             return models
 
-    def get_server_numbers(self):
+    def get_server_numbers(self) -> [str]:
         if self.exist():
             server_numbers = self.server_layout.keys()
             return server_numbers
 
-    def get_enclosure_numbers(self, server_number):
+    def get_enclosure_numbers(self, server_number:str) -> [str]:
         if self.exist():
             enclosure_numbers = self.server_layout[server_number]['frus'].keys()
             return enclosure_numbers
@@ -190,30 +196,67 @@ class NewServers(ServerLayout):
     Servers at theoretical new sites have 
     sequential numbering and no performance yet.
     '''
-    def __init__(self, server_layout):
+    def __init__(self, server_layout:DataFrame):
         ServerLayout.__init__(self, server_layout)
 
-    def __getitem__(self, number):
-        item = self.server_layout.query('`server number` == @number').iloc[0]
+    def __getitem__(self, number:int) -> Series:
+        item = self.server_layout.query('server_number == @number').iloc[0]
         return item
 
-    def get_size(self):
+    def get_size(self) -> float:
         if self.exist():
             size = self.server_layout['nameplate'].sum()
             return size
 
-    def get_server_numbers(self):
+    def get_server_numbers(self) -> [int]:
         if self.exist():
-            server_numbers = self.server_layout['server number'].to_list()
+            server_numbers = self.server_layout['server_number'].to_list()
             return server_numbers
 
-    def get_enclosure_numbers(self, server_number, filled_only=True):
+    def get_enclosure_numbers(self, server_number:int, filled_only:bool=True) -> [int]:
         if self.exist():
             to_count = ['filled'] if filled_only else ['filled', 'empty']
             enclosure_numbers = list(range(int(self[server_number][to_count].sum())))
             return enclosure_numbers
 
-    def get_models(self):
+    def get_models(self) -> [str]:
         if self.exist():
             models = self.server_layout['model'].to_list()
             return models
+
+class RandomLayout:
+    def __init__(self, sql_db:SQLDB):
+        self.columns = ['model', 'model_number', 'nameplate', 'filled', 'empty']
+        self.sql_db = sql_db
+        self.sites = self.get_sites_from_db()
+
+    def get_sites_from_db(self) -> DataFrame:
+        sites = self.sql_db.get_table('Site')
+        return sites
+
+    def get_site_layout(self, max_servers:int=10) -> NewServers:
+        # check that there are sites left
+        if self.sites.empty:
+            self.sites = self.get_sites_from_db
+
+        # randomly pick a site
+        site = self.sites.sample(1)
+        # remove from set
+        self.sites.drop(site.index, inplace=True)
+       
+        # try for model
+        site_size = site['system_size'].squeeze()
+        model_guess = site['energy_server_model'].squeeze().split(',')[0]    
+        model_number = self.sql_db.get_guessed_server_model(model_guess, site_size)
+        model = self.sql_db.get_server_model(server_model_number=model_number)
+
+        # fill in servers
+        server_count = min(int(site_size / model['nameplate']), max_servers)
+
+        server_layout = DataFrame([[model['model'], model['model_number'], model['nameplate'], model['enclosures'], model['plus_one']]] * server_count,
+                                  columns=self.columns)
+        server_layout.insert(0, 'server_number', range(1, server_count + 1))
+
+        new_servers = NewServers(server_layout)
+
+        return new_servers

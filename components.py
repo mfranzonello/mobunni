@@ -8,6 +8,7 @@ from pandas import concat
 from dateutil.relativedelta import relativedelta
 
 class Component:
+    refurb_tag = '-R'
     '''
     A component is a physical object with a model (base)
     and model number (specific version). It can also have
@@ -18,7 +19,8 @@ class Component:
         self.serial = serial
         self.model = model
         self.model_number = model_number
-        
+        self.refurbed = False
+
         if 'mark' in kwargs:
             self.mark = kwargs['mark']
 
@@ -30,8 +32,12 @@ class Component:
         if 'number' in kwargs:
             self.number = kwargs['number']
 
+    def get_model_number(self):
+        model_number = self.model_number + (Component.refurb_tag if self.refurbed else '')
+        return model_number
+
     # create a copy of the base component
-    def copy(self, **kwargs):
+    def copy(self, serial, **kwargs):
         '''
         The shop uses a template FRU to produce
         new versions.
@@ -41,6 +47,8 @@ class Component:
         attributes = {d: dictionary[d] for d in dictionary if d in signatures}
         updates = {k: kwargs[k] for k in kwargs if k in signatures}
         attributes.update(updates)
+        attributes['serial'] = serial
+
         component = self.__class__(**attributes)
         return component
 
@@ -63,7 +71,7 @@ class FRU(Component):
         self.install_date = install_date
         self.month = 0
         
-        self.stacks = stacks ##
+        self.stacks = stacks
         self.stack_reducer = 1
 
         self.power_curves = power_curves
@@ -136,7 +144,7 @@ class FRU(Component):
         if ideal_power == 0:
             deviation = 0
         else:
-            deviation = 1 - self.get_power(lookahead=lookahead) / ideal_power
+            deviation = max(0, ideal_power - self.get_power(lookahead=lookahead)) # 1 - get_power / ideal_power
 
         return deviation
 
@@ -177,13 +185,13 @@ class FRU(Component):
         '''
         If a power module is outputting power too far below what the
         ideal curve would be outputting, then it is deviated and can
-        be replaced. Default threshold is zero percent below ideal.
+        be replaced. Default threshold is zero kW below ideal.
         '''
         if self.is_dead() or (self.get_power() == 0):
             # FRU is at end of life and unrepairable
             deviated = False
         else:
-            deviated = self.get_deviation() > threshold ## DIV BY ZERO??
+            deviated = self.get_deviation() > threshold
      
         return deviated
 
@@ -222,11 +230,14 @@ class FRU(Component):
         
         # set new power and efficiency curves
         self.stack_reducer = new_stacks/self.stacks
-        
+       
         self.power_curve = self.power_curves.pick_curve(allowed=[0,1], stack_reducer=self.stack_reducer)
         self.ideal_curve = self.power_curves.pick_curve(allowed='ideal', stack_reducer=self.stack_reducer) ##
 
         self.efficiency_curve = self.efficiency_curves.pick_curve()
+
+        # mark as refurbished
+        self.refurb = True
         
         # reset month
         self.month = 0
