@@ -92,6 +92,11 @@ class Commitments(Group):
                      ['window', self.limits['window'] if self.limits['WTMO'] or self.limits['Weff'] else None],
                      ['downside years', non_replace_years if len(non_replace_years) else None]]
 
+        def get_downside_years(self):
+            non_replace.loc[:, 'start'] = non_replace['start'].apply(lambda x: self.install_date + relativedelta(years=x - 1))
+            non_replace.loc[:, 'end'] = non_replace['end'].apply(lambda x: self.install_date + relativedelta(years=x))
+            return non_replace
+
     # get years for cash flow
     def get_cash_flow_dates(self) -> [date, date]:
         start_year = (self.start_date + relativedelta(months=self.start_month)).year

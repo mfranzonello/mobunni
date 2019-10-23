@@ -220,8 +220,11 @@ class Inspector:
         commitments, fails = site.store_performance()
 
         # check if FRUs can be replaced this year
-        replaceable = site.contract.is_replaceable_time(month=site.get_month(), year=site.get_year(), years_remaining=site.get_years_remaining(),
-                                                        eoc={'allowed': site.shop.tweaks['eoc_deploy'], 'years': site.shop.thresholds['eoc deploy']})
+        replaceable = site.shop.is_replaceable_time() and site.contract.is_replaceable_time(month=site.get_month(),
+                                                                                            year=site.get_year(),
+                                                                                            years_remaining=site.get_years_remaining(),
+                                                                                            eoc={'allowed': site.shop.tweaks['eoc_deploy'],
+                                                                                                 'years': site.shop.thresholds['eoc deploy']})
 
         if replaceable:
             repairable = site.shop.tweaks['repair']

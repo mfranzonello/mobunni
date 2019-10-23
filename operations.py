@@ -157,7 +157,7 @@ class Templates:
 
 # warehouse to store, repair and deploy old FRUs and create new FRUs
 class Shop:
-    def __init__(self, sql_db:SQLDB, thresholds:Thresholds, install_date:date, tweaks:Tweaks, technology:Technology):
+    def __init__(self, sql_db:SQLDB, thresholds:Thresholds, install_date:date, non_replace:DataFrame, tweaks:Tweaks, technology:Technology):
         self.power_modules = PowerModules(sql_db)
         self.hot_boxes = HotBoxes(sql_db)
         self.energy_servers = EnergyServers(sql_db)
@@ -175,6 +175,7 @@ class Shop:
         self.salvage = []
 
         self.date = install_date
+        self.non_replace = non_replace
 
         self.roadmap = technology.get_roadmap()
 
@@ -196,6 +197,11 @@ class Shop:
     def get_cost(self, action:str, component:str=None, **kwargs) -> float:
         cost = self.bank.get_cost(self.date, action, component, **kwargs)
         return cost
+
+    # get if shop is operational and not in downside years
+    def is_replaceable_time(self) -> bool:
+        replaceable = not ((self.date >= self.non_replace['start']) & (self.date < self.non_replace['end'])).any()
+        return replaceable
 
     # copy a FRU from a template
     def create_fru(self, model:str, mark:str, model_number:str, install_date:date, site_number:str, server_number:str, enclosure_number:str,
@@ -573,7 +579,7 @@ class Fleet:
     def __init__(self, target_size, total_sites, install_years, system_sizes, system_dates, start_date, min_date):
         self.total_sites = total_sites
         self.install_years = install_years
-        
+
         self.target_size = target_size
         self.target_site = 0
         self.target_month = 0

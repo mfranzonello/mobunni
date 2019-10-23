@@ -13,8 +13,7 @@ from structure import SQLDB
 # legal commitments for a site or group of sites
 class Contract:
     limits_values = ['PTMO', 'WTMO', 'CTMO', 'Peff', 'Weff', 'Ceff', 'window']
-    def __init__(self, number:int, deal:str, length:int, target_size:float, start_date:date, start_month:int,
-                 non_replace:DataFrame, limits:dict):
+    def __init__(self, number:int, deal:str, length:int, target_size:float, start_date:date, start_month:int, limits:dict):
         self.number = number
         self.deal = deal
 
@@ -22,7 +21,6 @@ class Contract:
         self.target_size = target_size
         self.start_date = start_date
         self.start_month = start_month
-        self.non_replace = non_replace
 
         self.limits = limits
         self.windowed = (limits['WTMO'] or limits['Weff']) and limits['window']
@@ -33,7 +31,6 @@ class Contract:
                             target_size=kwargs.get('length', self.target_size),
                             start_date=kwargs.get('length', self.start_date),
                             start_month=kwargs.get('start_month', self.start_month),
-                            non_replace=kwargs.get('non_replace', self.non_replace),
                             limits={value: kwargs.get(value, self.limits[value]) for value in Contract.limits_values})
 
         return contract
@@ -41,8 +38,7 @@ class Contract:
     # FRUs can be installed during given year of contract
     def is_replaceable_time(self, **kwargs) -> bool:
         replaceable = all([kwargs.get('month', 0) >= self.start_month,
-                           kwargs['eoc']['allowed'] or (kwargs.get('years_remaining') >= kwargs['eoc']['years']),
-                           not ((self.non_replace['start'] <= kwargs.get('year')) & (self.non_replace['end'] >= kwargs.get('year'))).any()])
+                           kwargs['eoc']['allowed'] or (kwargs.get('years_remaining') >= kwargs['eoc']['years'])
 
         return replaceable
 
@@ -59,7 +55,7 @@ class Portfolio:
         number = self.number
         return number
 
-    def generate_contract(self, target_size:float, start_date:date, start_month:int, non_replace:DataFrame,
+    def generate_contract(self, target_size:float, start_date:date, start_month:int,
                           deal:str=None, length:int=None, limits:dict=None) -> Contract:
 
         number = self.get_number()
@@ -70,8 +66,7 @@ class Portfolio:
             length = contract_values.get('length', 10)
             limits = {lv: contract_values.get(lv) for lv in Portfolio.limits_values}
 
-        contract = Contract(number, deal, length, target_size, start_date, start_month,
-                            non_replace, limits)
+        contract = Contract(number, deal, length, target_size, start_date, start_month, limits)
         self.contracts.append(contract)
 
         return contract

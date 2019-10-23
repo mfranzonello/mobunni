@@ -92,7 +92,7 @@ class Simulation:
         fleet = Fleet(self.scenario.commitments.target_size, self.details.n_sites, self.details.n_years,
                       system_sizes, system_dates, self.scenario.commitments.start_date, min_date)
 
-        shop = Shop(self.sql_db, self.thresholds, self.scenario.commitments.start_date,
+        shop = Shop(self.sql_db, self.thresholds, self.scenario.commitments.start_date, self.scenario.commitments.get_downside_years(),
                     self.tweaks, self.scenario.technology)
         fleet.add_shop(shop)
 
@@ -118,20 +118,19 @@ class Simulation:
 
         # update
         site_start_date = self.scenario.commitments.start_date + relativedelta(months=month)
-        site_start_month = self.scenario.commitments.start_month ##
-        site_non_replace = self.scenario.commitments.non_replace
 
         # set up contract
         if (site_number == fleet.target_site):
             site_deal = self.scenario.commitments.deal
             site_length = self.scenario.commitments.length
             site_limits = self.scenario.commitments.limits
+            start_start_month = self.scenario.commitments.start_month
         
         else:
             site_deal, site_length, site_limits = [None]*3
+            site_start_month = 0
 
-        contract = self.portfolio.generate_contract(site_size, site_start_date, site_start_month, site_non_replace,
-                                                    site_deal, site_length, site_limits)
+        contract = self.portfolio.generate_contract(site_size, site_start_date, site_start_month, site_deal, site_length, site_limits)
         site = Site(site_number, fleet.shop, contract)
 
         if (site_number == fleet.target_site):
