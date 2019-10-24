@@ -10,7 +10,8 @@ secret.py
 debugging.py
 projects/*
 !projects/*template.xls*
-add/
+add/*
+!add/*data*.xls*
 
 # User-specific files
 *.suo
