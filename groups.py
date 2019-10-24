@@ -94,8 +94,8 @@ class Commitments(Group):
 
     def get_downside_years(self) -> DataFrame:
         non_replace = self.non_replace.copy()
-        non_replace.loc[:, 'start'] = non_replace['start'].apply(lambda x: self.install_date + relativedelta(years=x - 1))
-        non_replace.loc[:, 'end'] = non_replace['end'].apply(lambda x: self.install_date + relativedelta(years=x))
+        non_replace.loc[:, 'start'] = non_replace['start'].apply(lambda x: self.start_date + relativedelta(years=x - 1))
+        non_replace.loc[:, 'end'] = non_replace['end'].apply(lambda x: self.start_date + relativedelta(years=x))
         return non_replace
 
     # get years for cash flow
