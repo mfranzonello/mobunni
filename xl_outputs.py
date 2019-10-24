@@ -328,8 +328,6 @@ class Excelerator:
             secondary_chart = self.secondary_charts.get(chart_sheet_name)
             self.add_chart(writer, chart, secondary_chart=secondary_chart)
 
-        DataFrame([sn for sn in writer.sheets]).to_excel('test.xlsx')
-
         for sheet_name in self.tabs:
             self.color_tab(writer, sheet_name)
 

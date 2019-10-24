@@ -1,4 +1,4 @@
-# API connections
+# server layouts from user-defined or existing sites
 
 # built-in imports
 from datetime import date
@@ -165,7 +165,8 @@ class APC(LayoutGenerator):
             apc_sites = self.sites.copy()
             db_sites = self.sql_db.get_apc_sites()
 
-            missing_sites = apc_sites[~apc_sites['id'].isin(db_sites['id'])][['id', 'customer', 'acceptance_date']].drop_duplicates(subset='id')
+            missing_sites = apc_sites[~apc_sites['id'].isin(db_sites['id'])][['id', 'customer', 'acceptance_date', 'contract']].drop_duplicates(subset='id')
+            missing_sites.loc[:, 'acceptance_date'] = to_datetime(missing_sites['acceptance_date'])
             
             self.sql_db.write_apc_sites(missing_sites)
 
