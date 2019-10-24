@@ -13,7 +13,7 @@ from math import floor
 # add-on imports
 from structure import Project, SQLDB
 from layout import APC, ExistingServers, NewServers
-from xl_inputs import ExcelInt
+from xl_inputs import ExcelInt, ExcelSQL
 from xl_outputs import Excelerator, ExcelePaint
 from groups import Details, Commitments, Technology, Tweaks, Thresholds
 from simulate import Scenario, Simulation
@@ -24,8 +24,20 @@ class ServiceModel:
     Main object to run fleet management service cost generation.
     '''
 
+    version = 3
+    welcome_text = ['Bloom Service Cost Model v{}'.format(version),
+                    '~ created by Michael Franzonello et al ~']
+
+    ''' START UP FUNCTIONS '''
+
+    def welcome():
+        print('\n'.join(ServiceModel.welcome_text))
+        print()
+
+    ''' ALL CASE FUNCTIONS '''
+
     # ask for project
-    def get_project() -> [Project, ExcelInt]:
+    def get_project() -> Project:
         '''
         This function can be replaced with a web-based input UI.
         It uses the command prompt to ask the user which Excel input file to read
@@ -33,19 +45,35 @@ class ServiceModel:
         '''
         project = Project() # class to get project with slight UI
         project.ask_project() # get project
-        excel_int = ExcelInt(project.path) # pull values from Excel file for corresponding project
-        return project, excel_int
+        
+        return project
 
-    # read structure
-    def get_structure(structure_db: str) -> [SQLDB, Thresholds]:
+    # read database
+    def get_database(structure_db:str) -> SQLDB:
         '''
         This function sets up a connection to the database for cost values,
-        power and efficiency curves, compatibility, etc, and special threshold
-        values.
+        power and efficiency curves, compatibility, etc and for writing new
+        data.
         '''
         sql_db = SQLDB(structure_db)
+        return sql_db
+
+    ''' SIMULATOR FUNCTIONS '''
+
+    # get inputs for simulator
+    def get_inputs(project) -> ExcelInt:
+        excel_int = ExcelInt(project.path) # pull values from Excel file for corresponding project
+        return excel_int
+
+    # read structure
+    def get_structure(sql_db:SQLDB) -> [SQLDB, Thresholds]:
+        '''
+        This function retrieves special threshold values from the database.
+        values.
+        '''
+
         thresholds = Thresholds(sql_db.get_thresholds())
-        return sql_db, thresholds
+        return thresholds
 
     # build details
     def get_details(excel_int: ExcelInt) -> Details:
@@ -53,6 +81,7 @@ class ServiceModel:
         This function gets values for the refinement of the monte-carlo
         simulations and the total number of scenarios to run.
         '''
+
         print ('Getting project details')
         n_sites, n_years, n_runs = excel_int.get_details()
         n_scenarios = excel_int.count_scenarios()
@@ -67,6 +96,7 @@ class ServiceModel:
         including contract details, site layout and technology roadmap.
         It downloads from APC-TMO if required if there is a network connection.
         '''
+
         print('Getting scenario {} details'.format(scenario_number+1))
         scenario_name, limits, start_date, contract_length, contract_deal, non_replace, \
             site_code, servers, roadmap, multiplier, \
@@ -135,27 +165,59 @@ class ServiceModel:
         excelerator = Excelerator(path=None, filename='bpm_results_{}_{}'.format(project.name, scenario.name), extension='xlsx')
     
         # assemble output
-        data, print_index, formats, charts = ExcelePaint.get_paints(scenario.windowed, scenario.commitments.limits, inputs,
-                                                                    site_performance, cost_tables, fru_power, fru_efficiency, transactions, cash_flow)
+        data, print_index, formats, charts, tabs = ExcelePaint.get_paints(scenario.windowed, scenario.commitments.limits, inputs,
+                                                                          site_performance, cost_tables, fru_power, fru_efficiency, transactions, cash_flow)
         excelerator.store_data(data, print_index)
         excelerator.store_formats(formats)
         excelerator.store_charts(charts)
+        excelerator.store_tabs(tabs)
         excelerator.to_excel(start=open_results)
+
+    ''' DATA ADDING FUNCTIONS '''
+
+    # get inputs for new data
+    def get_data(project:Project, sql_db:SQLDB) -> ExcelSQL:
+        excel_sql = ExcelSQL(project.path, sql_db) # pull values from Excel file for new data
+        return excel_sql
+
+    # add new data to database
+    def add_data(excel_sql:ExcelSQL):
+
+        print('Updating database')
+        excel_sql.import_all_curves()
+        return
+
+    ''' MAIN FUNCTON '''
 
     # main code
     def run_model():
         '''
         This function excutes the functions above.
         '''
-        project, excel_int = ServiceModel.get_project()
-        sql_db, thresholds = ServiceModel.get_structure(structure_db)
-        details = ServiceModel.get_details(excel_int)
-        apc = APC(sql_db)
-        apc.add_to_db()
 
-        ServiceModel.run_scenarios(project, excel_int, details, sql_db, thresholds, apc)
+        ServiceModel.welcome()
 
+        project  = ServiceModel.get_project()
+
+        if project.file_type is not None:
+            # project runnable
+            sql_db = ServiceModel.get_database(structure_db)
+
+        if project.file_type == 'simulation':
+            # project is simulation
+            excel_int = ServiceModel.get_inputs(project)
+            thresholds = ServiceModel.get_structure(sql_db)
+            details = ServiceModel.get_details(excel_int)
+            apc = APC(sql_db)
+            apc.add_to_db()
+            
+            ServiceModel.run_scenarios(project, excel_int, details, sql_db, thresholds, apc)
+
+        elif project.file_type == 'database':
+            # project is adding data
+            excel_sql = ServiceModel.get_data(project, sql_db)
+
+            ServiceModel.add_data(excel_sql)
 
 if __name__ == '__main__':
-    print('Bloom Service Cost Model')
     ServiceModel.run_model()

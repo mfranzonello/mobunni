@@ -21,12 +21,16 @@ class Project:
     and extracts details.
     '''
     folder = r'projects' # input files repository
-    start = 'bpm_inputs_' # starting name of input files
+    start = 'bpm_' # start of input files
+    file_types = {'inputs': 'simulation',
+                  'data': 'database'}
+    middle = {m: '{}'.format(m) for m in file_types} # differentiator of input files
     end = 'xls' # input files extension
 
     def __init__(self):
         self.name = None
         self.path = None
+        self.file_type = None
 
     # prompt user for project selection
     def ask_project(self):
@@ -36,23 +40,39 @@ class Project:
         print('Asking for project')
         root = Tk()
         root.withdraw()
+
+        identifiers = {i: Project.start + Project.middle[i] for i in Project.middle}
+
         self.path = filedialog.askopenfilename(initialdir=Project.folder, title='Select scenarios file',
-                                               filetypes=[('BPM inputs', '{start}*.{extension}*'.format(start=Project.start, extension=Project.end)),
+                                               filetypes=[('BPM inputs', '{identifier}*.{extension}*'.format(identifier=identifiers['inputs'],
+                                                                                                             extension=Project.end)),
+                                                          ('BPM curves', '{identifier}*.{extension}*'.format(identifier=identifiers['data'],
+                                                                                                             extension=Project.end)),
                                                           ('all files', '*.*')])
         if not self.path:
             # no project selected, so quit
             print('Simulator canceled!')
             quit()
 
-        elif Project.start in self.path:
-            # valid project
-            self.name = self.path[self.path.index(Project.start) + len(Project.start):]
-            print('Selected {}'.format(self.name))
-
         else:
-            # invalid project
-            print('Invalid project file!')
-            self.ask_project()
+            for id in identifiers:
+                if identifiers[id] in self.path:
+                    index_start = self.path.index(identifiers[id])
+                    index_end = index_start + len(identifiers[id])
+                    if self.path[index_start:index_end] == identifiers[id]:
+                        # valid project
+                        self.file_type = Project.file_types[id]
+                        break
+
+            if self.file_type is None:
+                # invalid project
+                print('Invalid project file!')
+                self.ask_project()
+
+            else:
+                # valid project
+                self.name = self.path[self.path.index(identifiers[id]) + len(identifiers[id]):self.path.rindex('.{}'.format(Project.end))].strip()
+                print('Selected {}'.format(self.path))    
 
 # read in standard assumptions from SQL
 class SQLDB:
@@ -63,6 +83,9 @@ class SQLDB:
     by a minimal number of other classes to prevent too much
     direct touching of the database.
     '''
+
+    ''' READING FROM DATABASE '''
+
     def __init__(self, structure_db:str):
         print('Getting database from {}'.format(structure_db))
         self.engine = create_engine(URL.get_database(structure_db))
@@ -381,6 +404,66 @@ class SQLDB:
         sites = read_sql(sql, self.connection)
         return sites
 
+    ''' WRITING TO DATABASE '''
+
+    # take existing data and scale to a new peak and stretch by an additional time period
+    def scale_and_stretch(self, base_data, scale_factor, stretch_extension):
+        scale = scale_factor is not None
+        stretch = stretch_extension is not None
+
+        new_data = base_data.copy()
+        periods_old = new_data.index.to_list()
+        
+        if stretch:
+            multiplier = (periods_old[-1] + stretch_extension) / periods_old[-1]
+            periods_new = [c * multiplier for c in periods_old]
+            new_data = new_data.rename(dict(zip(periods_old, periods_new)))
+            periods_final = list(range(periods_old[-1]+stretch_extension + 1))
+            new_data = new_data.reindex(sorted(set(periods_final + periods_new))).interpolate(limit_direction='backward').reindex(periods_final)
+
+        if scale:
+            new_data = new_data.mul(scale_factor)
+                   
+        return new_data
+
+    # SQL code for matching on keys
+    def where_matches(self, table_name, keys, pairs):
+        wheres = ' OR '.join('({})'.format(' AND '.join('({}.{} IS "{}")'\
+            .format(table_name, k, pairs[k].iloc[i]) for k in keys)) for i in range(len(pairs)))
+        return wheres
+
+    # add new data to database
+    def write_table(self, table_name, keys, data=None):
+        # remove data from table to be overwritten
+        # find key pairs
+        pairs = data[keys].drop_duplicates()
+        wheres = self.where_matches(table_name, keys, pairs)
+        
+        if len(wheres):
+            sql = 'DELETE FROM "{}" WHERE {}'.format(table_name, wheres)
+            self.connection.execute(sql)
+
+        # add new data
+        if (data is not None) and (not data.empty):
+            data.to_sql(table_name, self.connection, if_exists='append', index=False)
+        
+        return
+
+    # add new power modules
+    def write_modules(self, modules:DataFrame):
+        self.write_table('Module', ['model', 'mark', 'model_number'], modules)
+
+    # add new power curves
+    def write_power_curves(self, power_curves:DataFrame):
+        self.write_table('PowerCurve', ['model', 'mark', 'model_number'], power_curves)
+        return
+
+    # add new efficiency curves
+    def write_efficiency_curves(self, efficiency_curves:DataFrame):
+        self.write_table('EfficiencyCurve', ['model', 'mark', 'model_number'], efficiency_curves)
+        return
+
     # add sites from APC to database
-    def add_apc_sites(self, sites:DataFrame):
-        sites.to_sql('APC', self.connection, if_exists='append', index=False)
+    def write_apc_sites(self, sites:DataFrame):
+        self.write_table('APC', ['id'], sites)
+        return

@@ -165,9 +165,9 @@ class APC(LayoutGenerator):
             apc_sites = self.sites.copy()
             db_sites = self.sql_db.get_apc_sites()
 
-            missing_sites = apc_sites[apc_sites['id'].isin(apc_sites['id'])][['id', 'customer']].drop_duplicates(subset='id')
+            missing_sites = apc_sites[~apc_sites['id'].isin(db_sites['id'])][['id', 'customer', 'acceptance_date']].drop_duplicates(subset='id')
             
-            self.sql_db.add_apc_sites(missing_sites)
+            self.sql_db.write_apc_sites(missing_sites)
 
     # get performance of each power module at a site
     def get_site_performance(self, site_code:str, start_date:date=None, end_date:date=None, tmo_threshold:float=10) -> dict:

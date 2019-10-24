@@ -124,7 +124,7 @@ class Simulation:
             site_deal = self.scenario.commitments.deal
             site_length = self.scenario.commitments.length
             site_limits = self.scenario.commitments.limits
-            start_start_month = self.scenario.commitments.start_month
+            site_start_month = self.scenario.commitments.start_month
         
         else:
             site_deal, site_length, site_limits = [None]*3

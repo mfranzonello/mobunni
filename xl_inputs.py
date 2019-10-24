@@ -14,7 +14,7 @@ import requests
 
 # object that finds and returns tables by name in Excel
 class ExcelSeer:
-    def __init__(self,file):
+    def __init__(self, file):
         self.file = file
         self.tables = {}
         self.data = {}
@@ -197,32 +197,56 @@ class ExcelSeer:
         col = sum(alphabet_length**(len(col_str) - i - 1) * (string.ascii_uppercase.index(col_str[i]) + 1) for i in range(len(col_str))) - 1
         return col
 
-# read Excel data into SQL database
-class ExcelSQL:
-    def __init__(self, path, sql_db):
+# read Excel data
+class ExcelData:
+    def __init__(self, path):
         self.path = path
+        self.excel_seer = ExcelSeer(path)
+
+    def remove_column_spaces(self, df):
+        replaces = {c: c.replace(' ', '_') for c in df.columns if type(c) is str}
+        df.rename(columns=replaces, inplace=True)
+        return df
+
+# read Excel data into SQL database
+class ExcelSQL(ExcelData):
+    def __init__(self, path, sql_db):
+        ExcelData.__init__(self, path)
         self.sql_db = sql_db
         
-        self.excel_seer = ExcelSeer(path)
+    # import new modules to database
+    def import_modules(self):
+        table_name = 'Modules'
+        modules = self.excel_seer[(None, table_name)]
+        self.remove_column_spaces(modules)
+
+        columns = self.sql_db.get_table('Module').columns.to_list()
+        modules = modules[columns].dropna(how='any')
+        self.sql_db.write_modules(modules)
 
     # import new curves to database
     def import_curves(self, curve_name, period):
         table_name = {'power': {'quarter': 'PowerCurveQ', 'month': 'PowerCurveM'},
                       'efficiency': {'month': 'EfficiencyCurve'}}[curve_name][period]
 
+        ids = ['model', 'mark', 'model_number']
+        if curve_name is 'power': ids += ['percentile']
+
         curves = self.excel_seer[(None, table_name)]
 
-        # remove values without model and mark
+        # clean up column names and remove values without model, mark, model number or percentile
         if curves is not None:
+            curves = self.remove_column_spaces(curves).drop('module', axis='columns')
+
             value_name = {'power': 'kw',
                           'efficiency': 'pct'}[curve_name]
 
-            curves = curves.dropna(how='any', subset=['model', 'mark'])
+            curves = curves.dropna(how='any', subset=ids)
 
             value_vars = [int(s) for s in curves.columns if (type(s) is str) and (s.isdigit())]
             renames = {str(i): i for i in value_vars}
             curves.rename(columns=renames, inplace=True)
-            curves_melted = curves.melt(id_vars=['model', 'mark', 'percentile'],
+            curves_melted = curves.melt(id_vars=ids,
                                         value_vars=value_vars,
                                         var_name=period, value_name=value_name)
             
@@ -252,14 +276,16 @@ class ExcelSQL:
 
     # import all new curves to database
     def import_all_curves(self):
+        self.import_modules()
         self.import_power_curves()
         self.import_efficiency_curves()
 
 # read in Excel file for project inputs
-class ExcelInt:
-    def __init__(self, project, details_sheet='⚙', scenarios_sheet='📃'):
-        self.excel_seer = ExcelSeer(project)
+class ExcelInt(ExcelData):
+    def __init__(self, path, details_sheet='⚙', scenarios_sheet='📃'):
+        ExcelData.__init__(self, path)
         self.details_sheet = details_sheet
+        self.scenarios_sheet = scenarios_sheet
         self.scenarios_sheets = [sh for sh in self.excel_seer.sheet_names \
                                  if (sh[:len(scenarios_sheet)] == scenarios_sheet) and (sh != scenarios_sheet)]
 
@@ -312,7 +338,8 @@ class ExcelInt:
 
     # return specific details of scenario
     def get_scenario(self, scenario=0, col=1):
-        scenario_name = self.scenarios_sheets[scenario]
+        scenario_sheetname = self.scenarios_sheets[scenario]
+        scenario_name = scenario_sheetname[len(self.scenarios_sheet):].strip()
         
         keys = {'ctmo_limit': self.floater, 'wtmo_limit': self.floater, 'ptmo_limit': self.floater,
                 'ceff_limit': self.floater, 'weff_limit': self.floater, 'peff_limit': self.floater, 'window': self.inter,
@@ -324,8 +351,8 @@ class ExcelInt:
 
         tables = ['NonReplace', 'NewServers', 'Roadmap']
 
-        values_keys = self.get_sheet_named_ranges(scenario_name, keys)
-        values_tables = self.get_sheet_tables(scenario_name, tables)
+        values_keys = self.get_sheet_named_ranges(scenario_sheetname, keys)
+        values_tables = self.get_sheet_tables(scenario_sheetname, tables)
 
         [ctmo_limit, wtmo_limit, ptmo_limit, ceff_limit, weff_limit, peff_limit, window,
          start_date, contract_length, contract_deal,
@@ -337,7 +364,7 @@ class ExcelInt:
 
         # get rid of spaces in column names
         for vt in [non_replace, servers, roadmap]:
-            vt.rename(columns={c: c.replace(' ', '_') for c in vt.columns}, inplace=True)
+            self.remove_column_spaces(vt)
 
         limits = {'CTMO': ctmo_limit, 'WTMO': wtmo_limit, 'PTMO': ptmo_limit,
                   'Ceff': ceff_limit, 'Weff': weff_limit, 'Peff': peff_limit,
@@ -350,7 +377,6 @@ class ExcelInt:
         servers = servers.iloc[:-1].dropna(subset=['model', 'model_number'])
 
         # set tech roadmap to default if blank
-        roadmap.rename
         if roadmap['model'].dropna().empty:
             roadmap = None
         

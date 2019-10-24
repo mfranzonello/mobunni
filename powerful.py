@@ -71,7 +71,7 @@ class PowerCurves(Curves):
             errors = self.curves.mul(stack_reducer).loc[0:len(fit)-1, :].T.sub(to_fit).T.pow(2).sum()
 
             if self.is_extrema(allowed):
-                filtered_curves = self.extrema['allowed']
+                filtered_curves = [self.extrema[allowed]]
 
             else:
                 filtered_curves = self.curves.loc[:, errors[errors == errors.min()].index.to_list()].columns

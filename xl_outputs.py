@@ -7,7 +7,7 @@ import string
 from math import floor, ceil
 
 # add-on imports
-from pandas import ExcelWriter
+from pandas import ExcelWriter, DataFrame
 
 # stores dataframe results and prints to multiple tabs of Excel spreadhseet
 class Excelerator:
@@ -23,6 +23,7 @@ class Excelerator:
         self.charts = {}
         self.secondary_charts = {}
         self.formats = []
+        self.tabs = {}
 
     # get windows username to print to desktop by default
     def get_desktop(self):
@@ -108,7 +109,7 @@ class Excelerator:
     def store_formats(self, formats):
         for style in formats:
             sheetname = style['sheetname']
-            rows, columns = self.get_indices(sheetname, style['columns'], style.get('rows'))
+            rows, columns = self.get_indices(sheetname, style['columns'], rows=style.get('rows'))
             self.formats.append({'sheetname': sheetname, 'style': style.get('style'), 'columns': columns,
                                  'rows': rows, 'width': style.get('width')})
         return
@@ -151,6 +152,10 @@ class Excelerator:
                 self.secondary_charts[chart_sheet_name] = {'sheetname': sheetname, 'columns': columns, 'rows': rows, 'header row': chart.get('header row'),
                                                            'type': chart.get('type'), 'subtype': chart.get('subtype')}
         return
+
+    # add tab colors to workbook
+    def store_tabs(self, tabs):
+        self.tabs = tabs
 
     # add values to an output sheet
     def add_data(self, writer, sheetname):
@@ -296,6 +301,15 @@ class Excelerator:
 
         return added_chart
 
+    # color tab
+    def color_tab(self, writer, sheet_name):
+
+        if self.tabs[sheet_name] in writer.sheets:
+            worksheet = writer.sheets[sheet_name]
+            worksheet.set_tab_color(self.tabs[sheet_name])
+        else:
+            print("can't find {} tab that should be colored {}".format(sheet_name, self.tabs[sheet_name]))
+
     # print output to Excel file and open
     def to_excel(self, start=False):
         next_file = Excelerator.next_file(self.path, self.filename, self.extension)
@@ -312,6 +326,11 @@ class Excelerator:
             chart = self.charts[chart_sheet_name]
             secondary_chart = self.secondary_charts.get(chart_sheet_name)
             self.add_chart(writer, chart, secondary_chart=secondary_chart)
+
+        DataFrame([sn for sn in writer.sheets]).to_excel('test.xlsx')
+
+        for sheet_name in self.tabs:
+            self.color_tab(writer, sheet_name)
 
         writer.save()
 
@@ -346,6 +365,24 @@ class ExcelePaint:
               'cash': 25}
     heights = {'costs': 'all'}
 
+    tabs = {'inputs': {'symbol': '⌨',
+                       'color': 'purple'},
+            'performance': {'symbol': '🌠',
+                            'color': 'orange'},
+            'costs': {'symbol': '💰',
+                      'color': 'dark red'},
+            'power': {'symbol': '🔌',
+                      'color': 'green'},
+            'efficiency': {'symbol': '⛽️',
+                           'color': 'light green'},
+            'transactions': {'symbol': '📒',
+                             'color': 'yellow'},
+            'cash flow': {'symbol': '💵',
+                          'color': 'dark blue'},
+            'graph': {'symbol': '📊',
+                      'color': 'light blue'},
+            }
+
     def get_paints(windowed, limits, inputs, performance, cost_tables, power, efficiency, transactions, cash_flow):
         ranges = ExcelePaint.ranges.copy()
 
@@ -364,7 +401,7 @@ class ExcelePaint:
                   'power': {'date': ['date'], 'comma': None},
                   'efficiency': {'date': ['date'], 'percent': None},
                   'inputs': {col: [col] for col in ['input', 'value']},
-                  'transactions': {'date': ['date'], 'value': ['serial', 'mark'], 'action': ['action'], 'money': ['service cost'],
+                  'transactions': {'date': ['date'], 'value': ['serial', 'model number'], 'action': ['action'], 'money': ['service cost'],
                                    'comma': ['power'], 'percent': ['efficiency']},
                   'costs': {'action': None},
                   'cash flow': {'cash': 0},
@@ -376,25 +413,28 @@ class ExcelePaint:
         print_index = ExcelePaint._get_print_index(indices)
         formats = ExcelePaint._get_formats(styles)
         charts = ExcelePaint._get_charts(limits, ranges, performance, cost_tables, columns['percent'], columns_2, cost_key=cost_key)
+        tabs = ExcelePaint._get_tabs()
 
-        return data, print_index, formats, charts
+        return data, print_index, formats, charts, tabs
 
     def _get_data(inputs, performance, cost_tables, power, efficiency, transactions, cash_flow):
-        data = {'inputs': inputs,
-                'performance': performance, 'costs': [cost_tables[c] for c in cost_tables],
-                'power': power, 'efficiency': efficiency,
-                'transactions': transactions,
-                'cash flow': cash_flow,
+        data = {ExcelePaint._get_symbol('inputs'): inputs,
+                ExcelePaint._get_symbol('performance'): performance,
+                ExcelePaint._get_symbol('costs'): [cost_tables[c] for c in cost_tables],
+                ExcelePaint._get_symbol('power'): power,
+                ExcelePaint._get_symbol('efficiency'): efficiency,
+                ExcelePaint._get_symbol('transactions'): transactions,
+                ExcelePaint._get_symbol('cash flow'): cash_flow,
                 }
 
         return data
 
     def _get_print_index(indices):
-        print_index = {idx: True for idx in indices}
+        print_index = {ExcelePaint._get_symbol(idx): True for idx in indices}
         return print_index
 
     def _get_formats(styles):
-        formats = [{'sheetname': sheetname, 'columns': cols,
+        formats = [{'sheetname': ExcelePaint._get_symbol(sheetname), 'columns': cols,
                     'style': ExcelePaint.num_styles.get(style),
                     'width': ExcelePaint.widths.get(style),
                     'rows': ExcelePaint.heights.get(sheetname)} for sheetname in styles \
@@ -431,14 +471,22 @@ class ExcelePaint:
                             'color': ExcelePaint.ranges_lite[r],
                             'dash': ExcelePaint.bounds_lite[b],
                             } for r in ranges for v in ExcelePaint.percent_values for b in ExcelePaint.bounds_lite]
-        charts = [{'sheetname': 'performance', 'type': 'line', 'columns': chart_columns,
+        charts = [{'sheetname': ExcelePaint._get_symbol('performance'), 'type': 'line', 'columns': chart_columns,
                    'colors': chart_colors, 'dashes': chart_dashes, 'weights': chart_weights,
-                   'chart sheet name': 'graph', 'constants': chart_constants,
+                   'chart sheet name': ExcelePaint._get_symbol('graph'), 'constants': chart_constants,
                    'y-axis': chart_y_axis, 'y2-axis': chart_y2_axis, 'x-axis': chart_x_axis, 'x2-axis': chart_x2_axis},
-                  {'sheetname': 'costs', 'type': 'column', 'subtype': 'stacked', 'columns': chart_columns_2,
+                  {'sheetname': ExcelePaint._get_symbol('costs'), 'type': 'column', 'subtype': 'stacked', 'columns': chart_columns_2,
                    'colors': chart_colors_2,
                    'header row': header_row_2, 'table number': -1, 'totals row': True, 'extra row': True,
-                   'chart sheet name': 'graph'},
+                   'chart sheet name': ExcelePaint._get_symbol('graph')},
                   ]
 
         return charts
+
+    def _get_tabs():
+        tabs = {ExcelePaint.tabs[t]['symbol']: ExcelePaint.tabs[t]['color'] for t in ExcelePaint.tabs}
+        return tabs
+
+    def _get_symbol(sheetname):
+        symbol = ExcelePaint.tabs[sheetname]['symbol']
+        return symbol
