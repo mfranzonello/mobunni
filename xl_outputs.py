@@ -304,11 +304,12 @@ class Excelerator:
     # color tab
     def color_tab(self, writer, sheet_name):
 
-        if self.tabs[sheet_name] in writer.sheets:
-            worksheet = writer.sheets[sheet_name]
-            worksheet.set_tab_color(self.tabs[sheet_name])
-        else:
-            print("can't find {} tab that should be colored {}".format(sheet_name, self.tabs[sheet_name]))
+        #if self.tabs[sheet_name] in writer.sheets:
+        workbook = writer.book
+        worksheet = workbook.get_worksheet_by_name(sheet_name)
+        worksheet.set_tab_color(self.tabs[sheet_name])
+        #else:
+        #    print("can't find {} tab that should be colored {}".format(sheet_name, self.tabs[sheet_name]))
 
     # print output to Excel file and open
     def to_excel(self, start=False):
@@ -366,21 +367,21 @@ class ExcelePaint:
     heights = {'costs': 'all'}
 
     tabs = {'inputs': {'symbol': '⌨',
-                       'color': 'purple'},
+                       'color': '#511849'},
             'performance': {'symbol': '🌠',
-                            'color': 'orange'},
+                            'color': '#FF8D1A'},
             'costs': {'symbol': '💰',
-                      'color': 'dark red'},
+                      'color': '#900C3F'},
             'power': {'symbol': '🔌',
-                      'color': 'green'},
+                      'color': '#57C785'},
             'efficiency': {'symbol': '⛽️',
-                           'color': 'light green'},
+                           'color': '#ADD45C'},
             'transactions': {'symbol': '📒',
-                             'color': 'yellow'},
+                             'color': '#FFC300'},
             'cash flow': {'symbol': '💵',
-                          'color': 'dark blue'},
+                          'color': '#3D3D6B'},
             'graph': {'symbol': '📊',
-                      'color': 'light blue'},
+                      'color': '#2A7B9B'},
             }
 
     def get_paints(windowed, limits, inputs, performance, cost_tables, power, efficiency, transactions, cash_flow):

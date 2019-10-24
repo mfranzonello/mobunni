@@ -83,12 +83,12 @@ class ExistingServers(ServerLayout):
 
     def get_server_numbers(self) -> [str]:
         if self.exist():
-            server_numbers = self.server_layout.keys()
+            server_numbers = list(self.server_layout.keys())
             return server_numbers
 
     def get_enclosure_numbers(self, server_number:str) -> [str]:
         if self.exist():
-            enclosure_numbers = self.server_layout[server_number]['frus'].keys()
+            enclosure_numbers = list(self.server_layout[server_number]['frus'].keys())
             return enclosure_numbers
 
 # user defined server layout
@@ -187,9 +187,9 @@ class APC(LayoutGenerator):
                                                    'frus': {}}
             
                 for fru_code in self.servers.query('id == @server_code')['powerModules'].iloc[0]:
-                    fru_number = fru_code.replace(server_code, '')
+                    fru_number = fru_code.replace(server_code, '').replace('.', '')
                     
-                    print(' | {}{}'.format(server_number, fru_number), end='', flush=True)
+                    print(' | {}.{}'.format(server_number, fru_number), end='', flush=True)
 
                     fru_performance, fru_install_date, fru_current_date, fru_operating_time = self.get_fru_performance(fru_code, start_date, end_date, tmo_threshold)
 

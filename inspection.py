@@ -34,9 +34,9 @@ class Monitor:
         power_eff = DataFrame(columns=['date'])
         power_eff.loc[:, 'date'] = self.contract_date_range
 
-        reindex = Monitor.power_eff_columns + ['ES{}|{}'.format(server_number, e_n) \
+        reindex = Monitor.power_eff_columns + ['ES{}|{}'.format(server_number, enclosure_number) \
             for server_number in servers \
-            for e_n in ['ENC{}'.format(f_n) for f_n in range(len(servers[server_number].enclosures))] + ceiling]
+            for enclosure_number in ['ENC{}'.format(e_n) for e_n in servers[server_number].enclosures] + ceiling]
 
         drop = ['ES{}|{}'.format(server_number, e_n) for server_number in servers for e_n in ceiling]
 
@@ -130,13 +130,15 @@ class Inspector:
                     is_balanceable = final_ceiling_loss < initial_ceiling_loss
                     if (not swaps['balanced']) and is_balanceable:
                         swaps['balanceable'] = is_balanceable
-                        swaps['balance swap'] = [(server_1, enclosure_1), (server_2, enclosure_2)]
+                        swaps['balance swap'] = [(server_1, site.servers[server_1].get_enclosure_numbers()[enclosure_1]),
+                                                 (server_2, site.servers[server_2].get_enclosure_numbers()[enclosure_2])]
                         initial_ceiling_loss = final_ceiling_loss
 
                     headroom_improvement = (max_headroom > swaps['max headroom'])
                     no_additional_loss = (final_headroom.where(final_headroom < max_ceiling_loss, 0) >= headroom.where(headroom < max_ceiling_loss, 0)).all()
                     if headroom_improvement and no_additional_loss:
-                        swaps['headroom swap'] = [(server_1, enclosure_1), (server_2, enclosure_2)]
+                        swaps['headroom swap'] = [(server_1, site.servers[server_1].get_enclosure_numbers()[enclosure_1]),
+                                                  (server_2, site.servers[server_2].get_enclosure_numbers()[enclosure_2])]
                         swaps['max headroom'] = max_headroom
 
         return swaps
@@ -158,11 +160,11 @@ class Inspector:
     def get_replaceable_frus(site, by):
         if by in ['power', 'energy']:
             replaceable = [[enclosure.fru.is_degraded(site.shop.thresholds['degraded']) \
-                if enclosure.is_filled() else True for enclosure in server.enclosures] for server in site.get_servers()]
+                if enclosure.is_filled() else True for enclosure in server.get_enclosures()] for server in site.get_servers()]
 
         elif by in ['efficiency']:
             replaceable = [[enclosure.fru.is_inefficient(site.shop.thresholds['inefficient']) \
-                if enclosure.is_filled() else True for enclosure in server.enclosures] for server in site.get_servers()]
+                if enclosure.is_filled() else True for enclosure in server.get_enclosures()] for server in site.get_servers()]
 
         replaceable_frus = DataFrame(data=replaceable, index=site.get_server_numbers())
 
@@ -206,7 +208,8 @@ class Inspector:
             # pick least well performing FRU
             if replaceable_enclosures.any().any():
                 # there is a FRU that can be replaced
-                server_number, enclosure_number = replaceable_enclosures.stack().idxmin()
+                server_number, enclosure_n = replaceable_enclosures.stack().idxmin()
+                enclosure_number = site.servers[server_number].get_enclosure_numbers()[enclosure_n]
 
             else:
                 # there are no FRUs that can be replaced
@@ -258,7 +261,7 @@ class Inspector:
     # look for repair opportunities
     def check_repairs(site):
         for server in site.get_servers():
-            for enclosure in server.enclosures:
+            for enclosure in server.get_enclosures():
                 if enclosure.is_filled() and enclosure.fru.is_deviated(site.shop.thresholds['deviated']):
                     reason = 'deviated by {:0.1f}kw'.format(enclosure.fru.get_deviation())
                     # FRU must be repaired

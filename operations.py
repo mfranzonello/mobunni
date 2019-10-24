@@ -30,7 +30,7 @@ class LogBook:
                 num = int(value) + 1
             else:
                 num = value
-        except TypeError:
+        except (TypeError, ValueError):
             num = value
         
         return num
@@ -482,9 +482,11 @@ class Shop:
 
     # create a new energy server
     def create_server(self, site_number, server_number, server_model_number=None, server_model_class=None,
-                      nameplate_needed=0, n_enclosures=None,
+                      nameplate_needed=0, enclosure_numbers=None,
                       reason='populating site'):
         serial = self.get_serial('ES')
+
+        n_enclosures = len(enclosure_numbers) if (enclosure_numbers is not None) else None
 
         server_model = self.energy_servers.get_server_model(server_model_number=server_model_number,
                                                             server_model_class=server_model_class,
@@ -503,7 +505,8 @@ class Shop:
         enclosure_model_number, _ = self.hot_boxes.get_model_details(server_model['model'])
 
         enclosures = self.create_enclosures(site_number, server, server.model, enclosure_model_number,
-                                            enclosure_count=server_model['enclosures'], plus_one_count=server_model['plus_one'])     
+                                            enclosure_count=server_model['enclosures'], plus_one_count=server_model['plus_one'],
+                                            enclosure_numbers=enclosure_numbers)     
 
         for enclosure in enclosures:
             server.add_enclosure(enclosure)
@@ -524,7 +527,7 @@ class Shop:
 
         enclosure_model_number, enclosure_nameplate = self.hot_boxes.get_model_details(new_fru.model)
 
-        for enclosure in server.enclosures:
+        for enclosure in server.get_enclosures():
             enclosure.upgrade_enclosure(new_fru.model, enclosure_model_number, enclosure_nameplate)
 
             self.transact(enclosure.serial, enclosure.model, enclosure.get_model_number(), enclosure.nameplate, None,
@@ -538,20 +541,24 @@ class Shop:
 
     # create an enclosure cabinent to add to a server to house a FRU
     def create_enclosures(self, site_number, server, enclosure_model, enclosure_model_number,
-                          start_number=0, enclosure_count=0, plus_one_count=0,
+                          start_number=0, enclosure_count=0, plus_one_count=0, enclosure_numbers=None,
                           reason='populating server'):
         # get cost per enclosure
         costs = enclosure_count * [self.get_cost('intialize enclosure')] + plus_one_count * [self.get_cost('add enclosure')] 
        
         # create enclosures
         enclosures = []
-        for c in range(enclosure_count + plus_one_count):
+
+        if enclosure_numbers is None:
+            enclosure_numbers = range(enclosure_count + plus_one_count)
+
+        for enclosure_number in enclosure_numbers:
             serial = self.get_serial('ENC')
             enclosure = self.templates.find_component('enclosure', model=enclosure_model, model_number=enclosure_model_number,
-                                                      serial=serial, number=start_number + c)
+                                                      serial=serial, number=enclosure_number)
             enclosures.append(enclosure)
             self.transact(serial, enclosure.model, enclosure.get_model_number(), enclosure.nameplate, None,
-                          'add enclosure', 'at', site_number, server.number, enclosure.number, costs[c], reason=reason)
+                          'add enclosure', 'at', site_number, server.number, enclosure.number, costs[enclosure_numbers.index(enclosure_number)], reason=reason)
 
         return enclosures
 

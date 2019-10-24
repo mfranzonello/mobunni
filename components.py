@@ -33,6 +33,9 @@ class Component:
             self.number = kwargs['number']
 
     def get_model_number(self):
+        '''
+        A refurbed component is tagged with -R
+        '''
         model_number = self.model_number + (Component.refurb_tag if self.refurbed else '')
         return model_number
 
@@ -85,6 +88,9 @@ class FRU(Component):
       
     # month to look at
     def get_month(self, lookahead=None):
+        '''
+        Current or future state of component
+        '''
         if lookahead is None:
             lookahead = 0
         month = int(self.month + lookahead)
@@ -197,6 +203,9 @@ class FRU(Component):
 
     # move to the next operating month
     def degrade(self):
+        '''
+        At the end of a period, the FRU is moved ahead on its curves.
+        '''
         self.month += 1
         return
 
@@ -227,7 +236,6 @@ class FRU(Component):
         An overhauled FRU starts its life over with new power
         and efficiency curves.
         '''
-        
         # set new power and efficiency curves
         self.stack_reducer = new_stacks/self.stacks
        
@@ -243,7 +251,13 @@ class FRU(Component):
         self.month = 0
       
 # cabinet in energy server that can house a FRU
-class Enclosure(Component):  
+class Enclosure(Component):
+    '''
+    An enclosure connects a power module and an energy server.
+    It can be empty or occupied. FRUs can be added and removed.
+    It has a nameplate rating that limits how much power is outputted
+    by the FRU.
+    '''
     def __init__(self, serial, number, model, model_number, nameplate):
         Component.__init__(self, serial, model, model_number, nameplate=nameplate, number=number)
         self.fru = None
@@ -304,13 +318,28 @@ class Enclosure(Component):
 
 # housing unit for power modules
 class Server(Component):
+    '''
+    An energy server is made up of a variable number of enclosures.
+    The energy server has an inverter with a nameplate that limits how
+    much power is outputted.
+    '''
     def __init__(self, serial, number, model, model_number, nameplate):
         Component.__init__(self, serial, model, model_number, nameplate=nameplate, number=number)
-        self.enclosures = []
+        self.enclosures = {}
+
+    # return array of servers
+    def get_enclosures(self):
+        enclosures = [self.enclosures[enclosure_number] for enclosure_number in self.enclosures]
+        return enclosures
+
+    # return array of server numbers
+    def get_enclosure_numbers(self):
+        enclosure_numbers = [enclosure_number for enclosure_number in self.enclosures]
+        return enclosure_numbers
 
     # add an empty enclosure for a FRU or plus-one
     def add_enclosure(self, enclosure):
-        self.enclosures.append(enclosure)
+        self.enclosures[enclosure.number] = enclosure
         return
     
     # replace FRU in enclosure with new FRU
@@ -330,7 +359,7 @@ class Server(Component):
 
     # return array of FRU powers
     def get_fru_power(self, lookahead=None):
-        fru_power = [enclosure.get_power(lookahead=lookahead) for enclosure in self.enclosures]
+        fru_power = [enclosure.get_power(lookahead=lookahead) for enclosure in self.get_enclosures()]
         return fru_power
 
     # get total power of all FRUs, capped at nameplate rating
@@ -343,7 +372,7 @@ class Server(Component):
 
     # estimate the remaining energy in server FRUs
     def get_energy(self, months=None):
-        curves_to_concat = [enclosure.fru.get_expected_curve()[enclosure.fru.get_month():] for enclosure in self.enclosures \
+        curves_to_concat = [enclosure.fru.get_expected_curve()[enclosure.fru.get_month():] for enclosure in self.get_enclosures() \
             if enclosure.is_filled() and not enclosure.fru.is_dead()]
 
         if not len(curves_to_concat): # bug with no live FRUs?
@@ -376,33 +405,33 @@ class Server(Component):
     # server has an empty enclosure or an enclosure with a dead FRU
     def has_empty(self, dead=False):
         # server has at least one empty enclosure
-        empty = any(enclosure.is_empty() for enclosure in self.enclosures)
+        empty = any(enclosure.is_empty() for enclosure in self.get_enclosures())
         
         # check if there is a dead module
         if dead:
-            empty |= any(enclosure.fru.is_dead() for enclosure in self.enclosures if enclosure.is_filled())
+            empty |= any(enclosure.fru.is_dead() for enclosure in self.get_enclosures() if enclosure.is_filled())
 
         return empty
 
     # server is full if there are no empty enclosures, it is at nameplate capacity or adding another FRU won't leave a slot free
     def is_full(self, plus_one_empty=False):
         full = (not self.has_empty()) or (self.get_power() >= self.nameplate) or \
-            (plus_one_empty and (sum([enclosure.is_empty() for enclosure in self.enclosures]) <= 1))
+            (plus_one_empty and (sum([enclosure.is_empty() for enclosure in self.get_enclosures()]) <= 1))
         return full
 
     # server has no FRUs and is just empty enclosures
     def is_empty(self):
-        empty = all(enclosure.is_empty() for enclosure in self.enclosures)
+        empty = all(enclosure.is_empty() for enclosure in self.get_enclosures())
         return empty
 
     # return sequence number of empty enclosure
     def get_empty_enclosure(self, dead=False):
-        dead_frus = [enclosure.fru.is_dead() if enclosure.is_filled() else False for enclosure in self.enclosures]
+        dead_frus = [enclosure.fru.is_dead() if enclosure.is_filled() else False for enclosure in self.get_enclosures()]
 
         if self.has_empty():
-            enclosure_number = min(enclosure.number for enclosure in self.enclosures if enclosure.is_empty())
+            enclosure_number = min(enclosure.number for enclosure in self.get_enclosures() if enclosure.is_empty())
         elif dead and len(dead_frus):
-            enclosure_number =  dead_frus.index(True)
+            enclosure_number =  self.get_enclosure_numbers()[dead_frus.index(True)]
         else:
             enclosure_number = None
 
@@ -414,7 +443,7 @@ class Server(Component):
         After a month of operation, all the enclosures are moved
         forward in time.
         '''
-        for enclosure in self.enclosures:
+        for enclosure in self.get_enclosures():
             if enclosure.is_filled():
                 enclosure.fru.degrade()
         return

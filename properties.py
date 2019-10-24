@@ -112,7 +112,7 @@ class Site:
 
     # current power output of all frus on site
     def get_fru_power(self, lookahead=None):
-        fru_power = DataFrame(data=[[enclosure.get_power(lookahead=lookahead) for enclosure in server.enclosures] for server in self.get_servers()],
+        fru_power = DataFrame(data=[[enclosure.get_power(lookahead=lookahead) for enclosure in server.get_enclosures()] for server in self.get_servers()],
                               index=self.get_server_numbers())
 
         return fru_power
@@ -126,7 +126,7 @@ class Site:
 
     # estimate the remaining energy in all FRUs
     def get_fru_energy(self):
-        fru_energy = DataFrame(data=[[enclosure.get_energy() for enclosure in server.enclosures] for server in self.get_servers()],
+        fru_energy = DataFrame(data=[[enclosure.get_energy() for enclosure in server.get_enclosures()] for server in self.get_servers()],
                                index=self.get_server_numbers())
         
         return fru_energy
@@ -152,7 +152,7 @@ class Site:
 
     # current efficiency of all FRUs on site
     def get_fru_efficiency(self):
-        fru_efficiency = DataFrame(data=[[enclosure.get_efficiency() for enclosure in server.enclosures] for server in self.get_servers()],
+        fru_efficiency = DataFrame(data=[[enclosure.get_efficiency() for enclosure in server.get_enclosures()] for server in self.get_servers()],
                                    index=self.get_server_numbers())
 
         return fru_efficiency
@@ -227,20 +227,20 @@ class Site:
             # loop through servers
             server_model = existing_servers[server_number]['model']
             nameplate_needed = existing_servers[server_number]['nameplate']
-            n_enclosures = len(existing_servers[server_number]['frus'])
+
+            enclosure_numbers = existing_servers.get_enclosure_numbers(server_number)
            
             server = self.shop.create_server(self.number, server_number, server_model_class=server_model,
-                                             nameplate_needed=nameplate_needed, n_enclosures=n_enclosures)
+                                             nameplate_needed=nameplate_needed, enclosure_numbers=enclosure_numbers)
                 
-            for fru_number in existing_servers.get_enclosure_numbers(server_number):
+            for enclosure_number in enclosure_numbers:
                 # loop through power modules
-                enclosure_number = server.get_empty_enclosure()
-
-                performance = existing_servers[server_number, fru_number]['performance']
-                operating_time = existing_servers[server_number, fru_number]['operating time']
+                ##enclosure_number = server.get_empty_enclosure()
+                performance = existing_servers[server_number, enclosure_number]['performance'] ##fru_number
+                operating_time = existing_servers[server_number, enclosure_number]['operating time'] ##fru_number
                 fru_fit = {'performance': performance, 'operating time': operating_time.years + operating_time.months}
 
-                install_date = existing_servers[server_number, fru_number]['install date']
+                install_date = existing_servers[server_number, enclosure_number]['install date'] ##fru_number
                 current_date = install_date + relativedelta(months=len(performance))
 
                 fru_model, fru_mark, fru_model_number =\
@@ -278,7 +278,7 @@ class Site:
     # return usable FRUs at end of contract
     def decommission(self):
         for server in self.get_servers():
-            for enclosure in server.enclosures:
+            for enclosure in server.get_enclosures():
                 if enclosure.is_filled():
                     old_fru = self.replace_fru(server.number, enclosure.number, None)
                     deviated = old_fru.is_deviated(self.shop.thresholds['deviated'])
@@ -414,7 +414,7 @@ class Site:
 	# store power and efficiency at each FRU and server
     def store_fru_performance(self):
         for server in self.get_servers():
-            for enclosure in server.enclosures:
+            for enclosure in server.get_enclosures():
                 if enclosure.is_filled():
                     power = enclosure.fru.get_power()
                     efficiency = enclosure.fru.get_efficiency()
