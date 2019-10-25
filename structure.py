@@ -1,11 +1,12 @@
 # project selection and functions to read and write database and Excel data
 
 # built-in imports
+from datetime import date
 from dateutil.relativedelta import relativedelta
 from random import random
 
 # add-in imports
-from pandas import DataFrame, Timestamp, read_sql, to_numeric, merge
+from pandas import DataFrame, Series, Timestamp, read_sql, to_numeric, merge
 from numpy import nan
 from sqlalchemy import create_engine
 from tkinter import Tk, filedialog
@@ -86,31 +87,31 @@ class SQLDB:
 
     ''' READING FROM DATABASE '''
 
-    def __init__(self, structure_db:str):
+    def __init__(self, structure_db: str):
         print('Getting database from {}'.format(structure_db))
         self.engine = create_engine(URL.get_database(structure_db))
         self.connection = self.engine.connect()
 
     # earliest historical date there is an energy server and power module available 
-    def get_earliest_date(self):
+    def get_earliest_date(self) -> date:
         sql = 'SELECT initial_date FROM Module ORDER BY initial_date LIMIT 1'
         earliest_date = read_sql(sql, self.connection, parse_dates=['initial_date']).squeeze()
         return earliest_date
 
     # select a table from the database
-    def get_table(self, table):
+    def get_table(self, table: str) -> DataFrame:
         sql = 'SELECT * FROM {}'.format(table)
         table = read_sql(sql, self.connection)
         return table
 
     # select the thresholds for FRU repairs and redeploys
-    def get_thresholds(self):
+    def get_thresholds(self) -> Series:
         sql = 'SELECT item, threshold from Threshold'
         thresholds = read_sql(sql, self.connection, index_col='item').squeeze()
         return thresholds
 
     # select latest energy server model
-    def get_latest_server_model(self, install_date, target_model=None):
+    def get_latest_server_model(self, install_date: date, target_model: str = None) -> str:
         sql = 'SELECT model FROM Module WHERE initial_date < "{}" ORDER BY rating DESC'.format(install_date)
         server_models = read_sql(sql, self.connection)
         
@@ -122,7 +123,7 @@ class SQLDB:
         return server_model
 
     # find the alternative name of an internal server name
-    def get_alternative_server_model(self, server_model:str) -> str:
+    def get_alternative_server_model(self, server_model: str) -> str:
         sql = 'SELECT server FROM Compatibility WHERE server = module'
         names = read_sql(sql, self.connection)['server'].squeeze()
 
@@ -142,24 +143,15 @@ class SQLDB:
         return allowed_modules
 
     # select default modules for roadmap
-    def get_default_modules(self):
+    def get_default_modules(self) -> DataFrame:
         sql = 'SELECT model, mark, model_number FROM Module WHERE mark = model_number'
         default_modules = read_sql(sql, self.connection)
         return default_modules
 
-    # select all model numbers of a module
-    def get_module_model_numbers(self, model, mark):
-        '''
-        Used for overhauls.
-        '''
-        sql = 'SELECT model_number FROM Module WHERE (model = "{}") and (mark = "{}")'.format(model, mark)
-        model_numbers = read_sql(sql, self.connection).squeeze()
-        return model_numbers
-
     # select cost for shop action
-    def get_cost(self, action, date, model=None, mark=None, operating_time=None, power=None):
+    def get_cost(self, action: str, action_date: date, model: str = None, mark: str = None, operating_time: int = None, power: float = None) -> float:
         where_list = ['action = "{}"'.format(action),
-                      'date <= "{}"'.format(date)]
+                      'date <= "{}"'.format(action_date)]
         max_list = ['date']
         
         if model is not None:
@@ -190,32 +182,32 @@ class SQLDB:
         return cost
 
     # select rating of power module
-    def get_module_rating(self, model, mark, model_number):
+    def get_module_rating(self, model: str, mark: str, model_number: str) -> float:
         sql = 'SELECT rating FROM Module WHERE (model = "{}") and (mark = "{}") and (model_number = "{}")'.format(model, mark, model_number)
         rating = read_sql(sql, self.connection).iloc[0].squeeze()
         return rating
 
     # select initial efficiency of power module
-    def get_module_efficiency(self, model, mark, model_number):
+    def get_module_efficiency(self, model: str, mark: str, model_number: str) -> float:
         sql = 'SELECT pct FROM EfficiencyCurve WHERE (model = "{}") and (mark = "{}") and (model_number = "{}") and (month = 1)'.format(model, mark, model_number)
         efficiency = read_sql(sql, self.connection).iloc[0].squeeze()
         return efficiency
 
     # select stacks of power module
-    def get_module_stacks(self, model, mark, model_number):
+    def get_module_stacks(self, model: str, mark: str, model_number: str) -> [int]:
         sql = 'SELECT stacks FROM Module WHERE (model = "{}") and (mark = "{}") and (model_number = "{}")'.format(model, mark, model_number)
         stacks = read_sql(sql, self.connection).iloc[0].squeeze().split(',')
         stacks = [int(stack) for stack in stacks]
         return stacks
 
     # select enclosure compatible with energy server
-    def get_enclosure_model_number(self, server_model):
+    def get_enclosure_model_number(self, server_model: str) -> [str, float]:
         sql = 'SELECT model_number, nameplate FROM Enclosure WHERE model = "{}"'.format(server_model)
         model_number, nameplate = read_sql(sql, self.connection).iloc[0, :]
         return model_number, nameplate
 
     # select default server sizes
-    def get_server_nameplates(self, server_model_class, target_size):
+    def get_server_nameplates(self, server_model_class: str, target_size: float) -> DataFrame:
         sql = 'SELECT model_number, nameplate, standard FROM Server WHERE nameplate <= {}'.format(target_size)
         server_details = read_sql(sql, self.connection)
 
@@ -230,7 +222,7 @@ class SQLDB:
         return server_nameplates
 
     # try to find a model that matches a partial number
-    def get_guessed_server_model(self, server_model_guess, site_size):
+    def get_guessed_server_model(self, server_model_guess: str, site_size: float) -> str:
         sql = 'SELECT model, model_number, nameplate, standard FROM Server WHERE model_number LIKE "{}%"'.format(server_model_guess)
         server_details = read_sql(sql, self.connection)
 
@@ -249,7 +241,7 @@ class SQLDB:
         return server_model_number
 
     # select server model based on model number or model class + nameplate
-    def get_server_model(self, server_model_number=None, server_model_class=None, nameplate_needed=0, n_enclosures=None):
+    def get_server_model(self, server_model_number: str = None, server_model_class: str = None, nameplate_needed: float = 0, n_enclosures: int = None) -> DataFrame:
         sql = 'SELECT * FROM Server '
         
         if server_model_number is not None:
@@ -283,7 +275,7 @@ class SQLDB:
         return server_model
 
     # select power modules avaible to create at a date
-    def get_buildable_modules(self, install_date, server_model=None, allowed=None, wait_period=False):
+    def get_buildable_modules(self, install_date: date, server_model: str = None, allowed: DataFrame = None, wait_period: bool = False) -> DataFrame:
         sql = 'SELECT model, mark, model_number, initial_date FROM Module WHERE initial_date <= "{}"'.format(install_date) #avaibility_date
         buildable_modules = read_sql(sql, self.connection, parse_dates=['initial_date'])
         
@@ -320,7 +312,7 @@ class SQLDB:
         return buildable_modules
 
     # select power curves for a power module model
-    def get_power_curves(self, model, mark, model_number):
+    def get_power_curves(self, model: str, mark: str, model_number: str) -> DataFrame:
         rating = self.get_module_rating(model, mark, model_number)
         sql = 'SELECT percentile, month, quarter, kw FROM PowerCurve WHERE \
             (model = "{}") and (mark = "{}") and (model_number = "{}")'.format(model, mark, model_number)
@@ -343,7 +335,7 @@ class SQLDB:
         return power_curves
 
     # select efficiency curves for a power module model
-    def get_efficiency_curve(self, model, mark, model_number):
+    def get_efficiency_curve(self, model: str, mark: str, model_number: str) -> Series:
         sql = 'SELECT month, pct FROM EfficiencyCurve WHERE \
             (model = "{}") and (mark = "{}") and (model_number = "{}")'.format(model, mark, model_number)
         efficiency_curve = read_sql(sql, self.connection)
@@ -354,12 +346,12 @@ class SQLDB:
         return efficiency_curve
 
     # remove items without integer indexes for power and efficiency curves
-    def clean_curve(self, curve):
+    def clean_curve(self, curve: DataFrame) -> DataFrame:
         cleaned_curve = curve.reindex([int(i) for i in curve.index if (type(i) in [int, float] and int(i) == float(i))])
         return cleaned_curve
 
     # select system sizes and full power date of historical distribution
-    def get_system_sizes(self):
+    def get_system_sizes(self) -> [Series, Series]:
         sql = 'SELECT system_size, full_power_date FROM Site'
         systems = read_sql(sql, self.connection, parse_dates=['full_power_date'])
         system_sizes = systems['system_size']
@@ -367,7 +359,7 @@ class SQLDB:
         return system_sizes, system_dates
 
     # get contract values
-    def get_contract(self, contract_number=None):
+    def get_contract(self, contract_number: str = None) -> DataFrame:
         if contract_number is None:
             sql = 'SELECT DISTINCT number FROM Contract'
             contract_number = read_sql(sql, self.connection).sample(1)['number']
@@ -378,19 +370,19 @@ class SQLDB:
         return contract
 
     # get line items for cash flow
-    def get_line_item(self, item, date, escalator_basis=None):
-        sql = 'SELECT value FROM CashFlow WHERE (lineitem = "{}") AND (date <= "{}") ORDER BY date DESC LIMIT 1'.format(item, date)
+    def get_line_item(self, item: str, item_date: date, escalator_basis: str = None) -> [float, float]:
+        sql = 'SELECT value FROM CashFlow WHERE (lineitem = "{}") AND (date <= "{}") ORDER BY date DESC LIMIT 1'.format(item, item_date)
         start_values = read_sql(sql, self.connection, parse_dates=['date'])
 
         if escalator_basis is None:
-            sql = 'SELECT value FROM CashFlow WHERE (lineitem = "{} escalator") AND (date <= "{}") ORDER BY date DESC LIMIT 1'.format(item, date)
+            sql = 'SELECT value FROM CashFlow WHERE (lineitem = "{} escalator") AND (date <= "{}") ORDER BY date DESC LIMIT 1'.format(item, item_date)
             escalators = read_sql(sql, self.connection, parse_dates=['date'])
 
         else:
             sql = 'SELECT value, date FROM CashFlow WHERE lineitem = "{}" ORDER BY date ASC'.format(escalator_basis)
             escalators = read_sql(sql, self.connection, parse_dates=['date'])
             escalators.loc[:, 'escalator'] = escalators['value'].pct_change()
-            escalators = escalators[(escalators['date'] <= Timestamp(date))]
+            escalators = escalators[(escalators['date'] <= Timestamp(item_date))]
 
         # get last value or return NaN
         start_value = start_values.iloc[0]['value'] if len(start_values) else nan
@@ -407,7 +399,7 @@ class SQLDB:
     ''' WRITING TO DATABASE '''
 
     # take existing data and scale to a new peak and stretch by an additional time period
-    def scale_and_stretch(self, base_data, scale_factor, stretch_extension):
+    def scale_and_stretch(self, base_data: DataFrame, scale_factor: int, stretch_extension: int) -> DataFrame:
         scale = scale_factor is not None
         stretch = stretch_extension is not None
 
@@ -427,13 +419,13 @@ class SQLDB:
         return new_data
 
     # SQL code for matching on keys
-    def where_matches(self, table_name, keys, pairs):
+    def where_matches(self, table_name: str, keys: list, pairs: dict) -> str:
         wheres = ' OR '.join('({})'.format(' AND '.join('({}.{} IS "{}")'\
             .format(table_name, k, pairs[k].iloc[i]) for k in keys)) for i in range(len(pairs)))
         return wheres
 
     # add new data to database
-    def write_table(self, table_name, keys, data=None):
+    def write_table(self, table_name: str, keys: list, data: DataFrame = None):
         # remove data from table to be overwritten
         # find key pairs
         pairs = data[keys].drop_duplicates()
@@ -450,20 +442,21 @@ class SQLDB:
         return
 
     # add new power modules
-    def write_modules(self, modules:DataFrame):
+    def write_modules(self, modules: DataFrame):
         self.write_table('Module', ['model', 'mark', 'model_number'], modules)
+        return
 
     # add new power curves
-    def write_power_curves(self, power_curves:DataFrame):
+    def write_power_curves(self, power_curves: DataFrame):
         self.write_table('PowerCurve', ['model', 'mark', 'model_number'], power_curves)
         return
 
     # add new efficiency curves
-    def write_efficiency_curves(self, efficiency_curves:DataFrame):
+    def write_efficiency_curves(self, efficiency_curves: DataFrame):
         self.write_table('EfficiencyCurve', ['model', 'mark', 'model_number'], efficiency_curves)
         return
 
     # add sites from APC to database
-    def write_apc_sites(self, sites:DataFrame):
+    def write_apc_sites(self, sites: DataFrame):
         self.write_table('APC', ['id'], sites)
         return

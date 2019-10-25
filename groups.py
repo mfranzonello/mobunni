@@ -3,7 +3,7 @@
 # built-in imports
 from datetime import date
 from dateutil.relativedelta import relativedelta
-from typing import Any
+from typing import List, Any
 
 # add-on imports
 from pandas import DataFrame, Series
@@ -99,7 +99,7 @@ class Commitments(Group):
         return non_replace
 
     # get years for cash flow
-    def get_cash_flow_dates(self) -> [date, date]:
+    def get_cash_flow_dates(self) -> List[date]:
         start_year = (self.start_date + relativedelta(months=self.start_month)).year
         end_year = (self.start_date + relativedelta(years=self.length)).year
         return start_year, end_year
@@ -154,7 +154,7 @@ class Technology(Group):
         return existing
 
     # check for default roadmap if none given
-    def get_roadmap(self, sql_db:SQLDB=None) -> DataFrame:
+    def get_roadmap(self, sql_db: SQLDB = None) -> DataFrame:
         if self.roadmap is not None:
             roadmap = self.roadmap[['model', 'mark', 'model_number']]
 
@@ -198,7 +198,7 @@ class Thresholds(Group):
     They are set in the database and should not
     change per scenario.
     '''
-    def __init__(self, thresholds:Series):
+    def __init__(self, thresholds: Series):
         self.thresholds = thresholds
 
         self.data = [['min power degradation when FRUs can be pulled', self.thresholds.get('degraded')],

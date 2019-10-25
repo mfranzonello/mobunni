@@ -1,8 +1,12 @@
 # physical sites were energy servers are installed
 
 # built-in imports
+from __future__ import annotations
+from typing import TYPE_CHECKING
+from datetime import date
 from dateutil.relativedelta import relativedelta
 from math import ceil, floor
+from typing import List, Tuple
 
 # add-on imports
 from pandas import DataFrame, Series, isnull
@@ -10,6 +14,11 @@ from numpy import nan
 
 # self-defined imports
 from inspection import Monitor, Inspector
+from legal import Contract
+from components import Server, FRU
+if TYPE_CHECKING:
+    from layout import NewServers, ExistingServers
+    from operations import Shop
 
 # group of energy servers
 class Site:
@@ -23,7 +32,7 @@ class Site:
     At the end of the contract, the site is
     decommissioned.
     '''
-    def __init__(self, number, shop, contract): 
+    def __init__(self, number: int, shop: Shop, contract: Contract): 
         self.number = number
         self.shop = shop
 
@@ -37,102 +46,86 @@ class Site:
 
         self.servers = {}
 
-        self.month = 0 ##contract.start_month
-
-    def __str__(self):
-        m_string = max(0, self.get_month()-1)
-        month_string = 'Contract month {}'.format(self.get_month()+1)
-        ceiling_loss = self.get_site_ceiling_loss()
-        ceiling_string = ' | {:0.3f}MW ceiling loss'.format(ceiling_loss/1000) if ceiling_loss > 0 else ''
-        site_string = 'SITE: {:0.3f}MW @ {:0.3f}MW | CTMO {:0.1%}, PTMO {:0.1%}, eff {:0.1%}{}'\
-            .format(self.system_size/1000, self.performance.loc[m_string, 'power']/1000,
-                    self.performance.loc[m_string, 'CTMO'],
-                    self.performance.loc[m_string, 'PTMO'],
-                    self.performance.loc[m_string, 'cumu eff'],
-                    ceiling_string)
-
-        line_string = '='*20
-        server_string = '\n'.join([line_string] + [str(server) for server in self.get_servers()] + [line_string])
-        string = '{}\n{}'.format(site_string, server_string)
-        return string
+        self.month = 0
 
     # get current operating month
-    def get_month(self):
+    def get_month(self) -> int:
         month = int(self.month)
         return month
 
     # return current date for FRU installation
-    def get_date(self):
-        date = self.contract.start_date + relativedelta(months=self.get_month())
-        return date
+    def get_date(self) -> date:
+        install_date = self.contract.start_date + relativedelta(months=self.get_month())
+        return install_date
 
     # return years into the contract
-    def get_years_passed(self):
+    def get_years_passed(self) -> float:
         passed = self.get_month()/12
         return passed
 
     # return monst left in the contract
-    def get_months_remaining(self):
+    def get_months_remaining(self) -> int:
         remaining = self.contract.length * 12 - self.get_month()
         return remaining
 
     # return years left in the contract
-    def get_years_remaining(self):
+    def get_years_remaining(self) -> float:
         remaining = self.get_months_remaining() / 12
         return remaining
 
     # return number of years into contract
-    def get_year(self):
+    def get_year(self) -> int:
         year = floor(self.get_years_passed()) + 1
         return year
 
     # contract has expired
-    def is_expired(self):
+    def is_expired(self) -> bool:
         expired = self.get_years_passed() >= self.contract.length
         return expired
 
     # sum up to nameplate rating of each installed energy server
-    def get_system_size(self):
+    def get_system_size(self) -> float:
         size = sum(server.nameplate if not server.is_empty() else 0 for server in self.get_servers())
         return size
 
     # return array of servers
-    def get_servers(self):
+    def get_servers(self) -> List[Server]:
         servers = [self.servers[server_number] for server_number in self.servers]
         return servers
 
     # return array of server numbers
-    def get_server_numbers(self):
+    def get_server_numbers(self) -> List[str]:
         server_numbers = [server_number for server_number in self.servers]
         return server_numbers
 
     # add a server with empty enclosures to site
-    def add_server(self, server):
+    def add_server(self, server: Server):
         self.servers[server.number] = server
+        return
 
     # current power output of all frus on site
-    def get_fru_power(self, lookahead=None):
+    def get_fru_power(self, lookahead: int = None) -> DataFrame:
         fru_power = DataFrame(data=[[enclosure.get_power(lookahead=lookahead) for enclosure in server.get_enclosures()] for server in self.get_servers()],
                               index=self.get_server_numbers())
 
         return fru_power
 
     # current overall power output of site
-    def get_site_power(self, lookahead=None):
+    def get_site_power(self, lookahead: int = None) -> float:
         # find potential power output of frus at each server
         site_power = sum([server.get_power(lookahead=lookahead) for server in self.get_servers()])
 
         return site_power
 
     # estimate the remaining energy in all FRUs
-    def get_fru_energy(self):
+    def get_fru_energy(self) -> DataFrame:
         fru_energy = DataFrame(data=[[enclosure.get_energy() for enclosure in server.get_enclosures()] for server in self.get_servers()],
                                index=self.get_server_numbers())
         
         return fru_energy
 
     # caculate energy already produced at all servers
-    def get_energy_produced(self):
+    def get_energy_produced(self) -> float:
         if self.get_month() > 0:
             ctmo = self.monitor.get_result('performance', 'CTMO', self.get_month() - 1)
         else:
@@ -141,24 +134,24 @@ class Site:
         return site_energy
 
     # estimate the remaining energy in all servers
-    def get_energy_remaining(self):
+    def get_energy_remaining(self) -> float:
         site_energy = sum(server.get_energy(months=self.get_months_remaining()) for server in self.get_servers())
         return site_energy
 
     # series of server nameplate ratings
-    def get_server_nameplates(self):
+    def get_server_nameplates(self) -> Series:
         server_nameplates = Series([server.nameplate for server in self.get_servers()], index=self.get_server_numbers())
         return server_nameplates
 
     # current efficiency of all FRUs on site
-    def get_fru_efficiency(self):
+    def get_fru_efficiency(self) -> DataFrame:
         fru_efficiency = DataFrame(data=[[enclosure.get_efficiency() for enclosure in server.get_enclosures()] for server in self.get_servers()],
                                    index=self.get_server_numbers())
 
         return fru_efficiency
 
     # current overall efficiency output of site
-    def get_site_efficiency(self):
+    def get_site_efficiency(self) -> DataFrame:
         # find potential power output of FRUs at each server
         fru_power = self.get_fru_power()
         site_power = self.get_fru_power().sum().sum()
@@ -175,37 +168,33 @@ class Site:
         return site_efficiency
 
     # power that is lost due to nameplate capacity per server
-    def get_server_ceiling_loss(self):
+    def get_server_ceiling_loss(self) -> List[float]:
         server_ceiling_loss = [server.get_ceiling_loss() for server in self.get_servers()]
         return server_ceiling_loss
 
     # power available due to nameplate capacity per server
-    def get_server_headroom(self):    
+    def get_server_headroom(self) -> List[float]:    
         server_headroom = [server.get_headroom() for server in self.get_servers()]
         return server_headroom
 
-    # anticipate where modules could go without going over
-    def get_max_headroom(self):
-        return
-
     # servers with at least one empty enclosure
-    def get_server_has_empty(self):
+    def get_server_has_empty(self) -> List[bool]:
         server_has_empty = [server.has_empty() for server in self.get_servers()]
         return server_has_empty
 
     # at least one server with at least one empty enclosure
-    def has_empty(self):
+    def has_empty(self) -> bool:
         server_has_empty = self.get_server_has_empty()
         site_has_empty = any(server_has_empty)
         return site_has_empty
 
     # power that is lost due to nameplate capacity for site
-    def get_site_ceiling_loss(self):
+    def get_site_ceiling_loss(self) -> float:
         site_ceiling_loss = sum(self.get_server_ceiling_loss())
         return site_ceiling_loss
 
     # add FRUs to site
-    def populate(self, new_servers=None, existing_servers=None):
+    def populate(self, new_servers: NewServers = None, existing_servers: ExistingServers = None):
         # servers already exist
         if existing_servers is not None:
             self.populate_existing(existing_servers)
@@ -221,7 +210,7 @@ class Site:
         self.system_size = self.get_system_size() ##contract.target_size
 
     # add existing FRUs to site
-    def populate_existing(self, existing_servers):
+    def populate_existing(self, existing_servers: ExistingServers):
         # house existing frus in corresponding servers
         for server_number in existing_servers.get_server_numbers():
             # loop through servers
@@ -257,7 +246,7 @@ class Site:
             self.add_server(server)
 
     # add new FRUs to site
-    def populate_new(self, new_servers):
+    def populate_new(self, new_servers: NewServers):
         # no existing FRUs, start site from scratch
 
         for server_number in new_servers.get_server_numbers():
@@ -286,7 +275,7 @@ class Site:
         return
         
     # move FRUs between enclosures
-    def swap_frus(self, server_1, enclosure_1, server_2, enclosure_2, ceiling_loss_threshold=None):
+    def swap_frus(self, server_1: str, enclosure_1: str, server_2: str, enclosure_2: str, ceiling_loss_threshold: float = None):
         # starting ceiling loss
         ceiling_loss_start = self.get_site_ceiling_loss()
         
@@ -316,7 +305,7 @@ class Site:
                 self.shop.balance_frus(fru_2, self.number, server_2, enclosure_2, server_1, enclosure_1, reason=reason)
 
     # swap FRU and send old one to shop (if not empty)
-    def replace_fru(self, server_number, enclosure_number, fru):
+    def replace_fru(self, server_number: str, enclosure_number: str, fru: FRU) -> FRU:
         server = self.servers[server_number]
         old_fru = server.replace_fru(enclosure_number=enclosure_number, fru=fru)
 
@@ -335,7 +324,7 @@ class Site:
             # swap frus
             self.swap_frus(server_1, enclosure_1, server_2, enclosure_2, ceiling_loss_threshold=self.shop.thresholds['ceiling loss'])
 
-    def replace_and_balance(self, server_n, enclosure_n, new_fru, reason=None):
+    def replace_and_balance(self, server_n: str, enclosure_n: str, new_fru: FRU, reason: str = None):
         # there is a FRU that meets ceiling loss requirements
         if new_fru is not None:
 
@@ -349,13 +338,13 @@ class Site:
             self.balance_site()
         
     # store performance at FRU and site level
-    def store_performance(self):
+    def store_performance(self) -> Tuple[dict, dict]:
         self.store_fru_performance()
         commitments, fails = self.store_site_performance()
         return commitments, fails
     
     # store cumulative, windowed and instantaneous TMO and efficiency
-    def store_site_performance(self):
+    def store_site_performance(self) -> Tuple[dict, dict]:
         if self.limits['window']:
             window_start = max(0, self.get_month() - self.limits['window'])
 
@@ -431,6 +420,7 @@ class Site:
     # use inspector to check site
     def check_site(self):
         Inspector.check_site(self)
+        return
 
     # degrade each server
     def degrade(self):       

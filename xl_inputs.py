@@ -6,15 +6,41 @@ import zipfile
 import fnmatch
 import io
 from xml.etree import ElementTree
+from datetime import date
+from typing import Union, Callable, List, Any
 
 # add-on imports
-from pandas import ExcelFile, to_numeric
+from pandas import ExcelFile, DataFrame, to_numeric
 import xlrd
+from xlrd import Book
 import requests
 
+# self-defined imports
+from structure import SQLDB
+
+class Excello:
+    def get_xl_row(row_str: str) -> int:
+        xl_row = int(row_str) - 1
+        return xl_row
+
+    def get_xl_col(col_str: str) -> int:
+        alphabet_length = len(string.ascii_uppercase)
+        xl_col = sum(alphabet_length**(len(col_str) - i - 1) * (string.ascii_uppercase.index(col_str[i]) + 1) for i in range(len(col_str))) - 1
+        return xl_col
+
+    def get_xl_address(row_str: str, col_str: str, fix: bool = False) -> str:
+        xl_row = Excello.get_xl_row(row_str)
+        xl_column = Excello.get_xl_column(col_str)
+        
+        fixed = '$' if fix else ''
+        address = '{}{}{}{}'.format(fixed, xl_column, fixed, xl_row)
+
+        return address
+
+
 # object that finds and returns tables by name in Excel
-class ExcelSeer:
-    def __init__(self, file):
+class ExcelSeer(Excello):
+    def __init__(self, file: str):
         self.file = file
         self.tables = {}
         self.data = {}
@@ -28,7 +54,7 @@ class ExcelSeer:
         self._name_sheets()
         self._get_named_ranges()
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         string_filename = 'Filename: {}\n'.format(self.file)
         string_tables = 'Tables:\n' + ''.join(' {}: sheet "{}", range "{}"\n'.format(self.tables[t]['name'],
                                                                                  self.tables[t]['sheet_name'],
@@ -37,7 +63,7 @@ class ExcelSeer:
         repr_string = string_filename + string_tables + string_named_ranges
         return repr_string
 
-    def __getitem__(self, location):
+    def __getitem__(self, location: List[str]) -> Any:
         sheet_name, item_name = location
 
         if sheet_name is None:
@@ -49,7 +75,7 @@ class ExcelSeer:
         return value
 
     # return openable table
-    def _find_link(self):
+    def _find_link(self) -> Union[str, io.BytesIO]:
         if fnmatch.fnmatch(self.file, 'http*:*'):
             r = requests.get(self.file, stream=True)
             self.link = io.BytesIO(r.content)
@@ -59,6 +85,7 @@ class ExcelSeer:
     # pull from local file or web and read as zip file
     def _unzip(self):
         self.xl = zipfile.ZipFile(self.link)
+        return
 
     # get all files in zip of Excel file 
     def _get_table_info(self):
@@ -90,7 +117,7 @@ class ExcelSeer:
         self.tables = tables
 
     # get table number from XML data
-    def _strip_table(self, table_name, source):
+    def _strip_table(self, table_name: str, source: str) -> int:
         if source=='xml':
             strip_part = 'xl'
         elif source=='rels':
@@ -99,7 +126,7 @@ class ExcelSeer:
         return stripped
 
     # get sheet number from XML data (0-indexed)
-    def _strip_sheet(self, sheet_name):
+    def _strip_sheet(self, sheet_name: str) -> int:
         stripped = int(sheet_name.replace('xl/worksheets/_rels/sheet', '').replace('.xml.rels', ''))-1
         return stripped
 
@@ -124,7 +151,7 @@ class ExcelSeer:
         self.data = dataframes
 
     # translate Excel reference to pandas numbers
-    def _split_range(self, string_value):
+    def _split_range(self, string_value: str) -> [str, int, int]:
         left = string_value[0:string_value.index(':')]
         right = string_value[string_value.index(':')+1:]
         letters = []
@@ -161,8 +188,8 @@ class ExcelSeer:
                 anchors = ref.split(':')
                 _, col_str_1, row_str_1 = anchors[0].split('$')
                 _, col_str_2, row_str_2 = anchors[-1].split('$')
-                row_range = range(self.get_xl_row(row_str_1), self.get_xl_row(row_str_2) + 1)
-                col_range = range(self.get_xl_col(col_str_1), self.get_xl_col(col_str_2) + 1)
+                row_range = range(ExcelSeer.get_xl_row(row_str_1), ExcelSeer.get_xl_row(row_str_2) + 1)
+                col_range = range(ExcelSeer.get_xl_col(col_str_1), ExcelSeer.get_xl_col(col_str_2) + 1)
 
                 if (len(row_range) == 1) and (len(col_range) == 1):
                     # only one cell
@@ -184,33 +211,23 @@ class ExcelSeer:
 
         return
 
-    def get_xl_value(self, workbook, sheet_name:str, row:int, col:int) -> str:
+    def get_xl_value(self, workbook: Book, sheet_name: str, row: int, col: int) -> str:
         value = workbook.sheet_by_name(sheet_name).cell(row, col).value
         return value
 
-    def get_xl_row(self, row_str:str) -> int:
-        row = int(row_str) - 1
-        return row
-
-    def get_xl_col(self, col_str:str) -> int:
-        alphabet_length = len(string.ascii_uppercase)
-        col = sum(alphabet_length**(len(col_str) - i - 1) * (string.ascii_uppercase.index(col_str[i]) + 1) for i in range(len(col_str))) - 1
-        return col
-
 # read Excel data
 class ExcelData:
-    def __init__(self, path):
+    def __init__(self, path: str):
         self.path = path
         self.excel_seer = ExcelSeer(path)
 
-    def remove_column_spaces(self, df):
+    def remove_column_spaces(self, df: DataFrame):
         replaces = {c: c.replace(' ', '_') for c in df.columns if type(c) is str}
         df.rename(columns=replaces, inplace=True)
-        return df
 
 # read Excel data into SQL database
 class ExcelSQL(ExcelData):
-    def __init__(self, path, sql_db):
+    def __init__(self, path: str, sql_db: SQLDB):
         ExcelData.__init__(self, path)
         self.sql_db = sql_db
         
@@ -225,7 +242,7 @@ class ExcelSQL(ExcelData):
         self.sql_db.write_modules(modules)
 
     # import new curves to database
-    def import_curves(self, curve_name, period):
+    def import_curves(self, curve_name: str, period: str) -> DataFrame:
         table_name = {'power': {'quarter': 'PowerCurveQ', 'month': 'PowerCurveM'},
                       'efficiency': {'month': 'EfficiencyCurve'}}[curve_name][period]
 
@@ -282,7 +299,7 @@ class ExcelSQL(ExcelData):
 
 # read in Excel file for project inputs
 class ExcelInt(ExcelData):
-    def __init__(self, path, details_sheet='⚙', scenarios_sheet='📃'):
+    def __init__(self, path: str, details_sheet: str = '⚙', scenarios_sheet: str = '📃'):
         ExcelData.__init__(self, path)
         self.details_sheet = details_sheet
         self.scenarios_sheet = scenarios_sheet
@@ -290,25 +307,25 @@ class ExcelInt(ExcelData):
                                  if (sh[:len(scenarios_sheet)] == scenarios_sheet) and (sh != scenarios_sheet)]
 
     # convert excel float to datetime
-    def xldate(self, date_float):
+    def xldate(self, date_float: float) -> date:
         if type(date_float) is float:
-            date = xlrd.xldate_as_datetime(date_float, 0).date()
+            date_value = xlrd.xldate_as_datetime(date_float, 0).date()
         else:
-            date = None
-        return date
+            date_value = None
+        return date_value
 
     # return floats where possible
-    def floater(self, string_value):
+    def floater(self, string_value: str) -> float:
         value = self.floatint(string_value, float)
         return value
 
     # return integers where possible
-    def inter(self, string_value):
+    def inter(self, string_value: str) -> int:
         value = self.floatint(string_value, int)
         return value
 
     # return float or interger
-    def floatint(self, string_value, func):
+    def floatint(self, string_value: str, func: Callable) -> Union[float, int]:
         try:
             return func(string_value)
         except ValueError:
@@ -316,17 +333,17 @@ class ExcelInt(ExcelData):
         return
 
     # get named range values on sheet
-    def get_sheet_named_ranges(self, sheet_name, keys):
+    def get_sheet_named_ranges(self, sheet_name: str, keys: dict) -> list:
         values = [keys[key](self.excel_seer[(sheet_name, key)]) for key in keys]
         return values
 
     # get table values on sheet 
-    def get_sheet_tables(self, sheet_name, tables):
+    def get_sheet_tables(self, sheet_name: str, tables: list) -> list:
         values = [self.excel_seer[(sheet_name, table)] for table in tables]
         return values
 
     # get common details of project
-    def get_details(self, col=1):
+    def get_details(self) -> tuple:
         details_name = self.details_sheet
 
         keys = {'n_sites': int, 'n_years': int, 'n_runs': int}
@@ -337,7 +354,7 @@ class ExcelInt(ExcelData):
         return n_sites, n_years, n_runs
 
     # return specific details of scenario
-    def get_scenario(self, scenario=0, col=1):
+    def get_scenario(self, scenario: int = 0) -> tuple:
         scenario_sheetname = self.scenarios_sheets[scenario]
         scenario_name = scenario_sheetname[len(self.scenarios_sheet):].strip()
         
@@ -389,6 +406,6 @@ class ExcelInt(ExcelData):
             repair, redeploy, best, early_deploy, eoc_deploy
 
     # total number of scenarios to explore
-    def count_scenarios(self):
+    def count_scenarios(self) -> int:
         n_scenarios = len(self.scenarios_sheets)
         return n_scenarios

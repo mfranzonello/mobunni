@@ -3,11 +3,14 @@
 # built-in imports
 from datetime import date
 from dateutil.relativedelta import relativedelta
+from typing import List, Dict, Tuple
 
 # add-on imports
-from pandas import concat
+from pandas import DataFrame, concat
 
 # self-defined imports
+from groups import Details, Commitments, Technology, Tweaks, Thresholds
+from structure import SQLDB
 from properties import Site
 from operations import Shop, Fleet
 from legal import Portfolio
@@ -21,7 +24,7 @@ class Scenario:
     made up of contract commitments, server layout, technology roadmaps,
     and tweaks (e.g., allowing deploys or repairs or early deploys).
     '''
-    def __init__(self, number, name, commitments, technology, tweaks):
+    def __init__(self, number: int, name: str, commitments: Commitments = None, technology: Technology = None, tweaks: Tweaks = None):
         self.number = number
         self.name = name
 
@@ -29,20 +32,22 @@ class Scenario:
         self.technology = technology
         self.tweaks = tweaks
 
-        self.windowed = (self.commitments.limits['WTMO'] or self.commitments.limits['Weff']) and self.commitments.limits['window']
+        self.windowed = ((self.commitments.limits['WTMO'] or self.commitments.limits['Weff']) and self.commitments.limits['window']) \
+            if self.commitments is not None else None
 
-    def is_runnable(self):
-        runnable = self.technology.has_servers()
+    def is_runnable(self) -> bool:
+        runnable = all([not any(attribute is None for attribute in [self.commitments, self.technology, self.tweaks]),
+                        self.technology.has_servers()])
         return runnable
 
     # save specifice inputs from a scenario
-    def get_inputs(self, *args):
+    def get_inputs(self, *args) -> DataFrame:
         inputs = concat([item.get_inputs() for item in [*args, self.commitments, self.technology, self.tweaks]],
                          ignore_index=True)
         
         return inputs
 
-    def get_years(self, cash_flow=False):
+    def get_years(self, cash_flow: bool = False) -> list:
         if cash_flow:
             start, end = self.commitments.get_cash_flow_dates()
 
@@ -64,7 +69,7 @@ class Simulation:
     of the individual runs are store and averaged, with more
     details of the last run saved for auditing.
     '''
-    def __init__(self, details, scenario, sql_db, thresholds):
+    def __init__(self, details: Details, scenario: Scenario, sql_db: SQLDB, thresholds: Thresholds):
         self.fru_performance = []
         self.site_performance = []
         self.costs = []
@@ -86,7 +91,7 @@ class Simulation:
         self.size = 0
        
     # create operations and cost objects
-    def set_up_fleet(self):
+    def set_up_fleet(self) -> Tuple[Fleet, Shop]:
         system_sizes, system_dates = self.sql_db.get_system_sizes()
         min_date = self.sql_db.get_earliest_date()
         fleet = Fleet(self.scenario.commitments.target_size, self.details.n_sites, self.details.n_years,
@@ -102,7 +107,7 @@ class Simulation:
         return fleet, shop
        
     # create a site at the beginning of a phase
-    def set_up_site(self, fleet, month, random_layout):
+    def set_up_site(self, fleet: Fleet, month: int, random_layout: RandomLayout) -> Site:
         site_number = len(fleet.sites)
         if site_number == fleet.target_site:
             site_name = '{} (TARGET)'.format(self.scenario.technology.site_name)
@@ -150,7 +155,7 @@ class Simulation:
         return site
 
     # look at site to see if FRUs need to be repaired, replaced or redeployed or if contract is finished
-    def inspect_site(self, fleet, site):
+    def inspect_site(self, fleet: Fleet, site: Site) -> bool:
         decommissioned = False
 
         # check TMO, efficiency, repairs and other site statuses
@@ -176,7 +181,7 @@ class Simulation:
         return decommissioned
 
     # save results of a simulation
-    def append_summaries(self, fleet):
+    def append_summaries(self, fleet: Fleet):
         # store fleet power, efficiency and costs
         self.site_performance.append(fleet.summarize_site_performance())
         self.costs.append(fleet.summarize_transactions())
@@ -187,7 +192,7 @@ class Simulation:
         
     # run simulations for a scenario
     def run_scenario(self):
-        print('SCENARIO {}'.format(self.scenario.number+1))
+        print('SCENARIO {}: {}'.format(self.scenario.number+1, self.scenario.name))
 
         if not self.scenario.is_runnable():
             print('Site is empty, cannot run scenario!')
@@ -236,7 +241,7 @@ class Simulation:
         print(cost_tables['quants'])
 
     # average the run performance
-    def get_site_performance(self):
+    def get_site_performance(self) -> DataFrame:
         performance = concat(self.site_performance)
         performance_gb = performance.drop(['site', 'year'], axis='columns').groupby(['date'])
 
@@ -252,7 +257,7 @@ class Simulation:
         return site_performance
 
     # average the run costs
-    def get_costs(self, last=False):
+    def get_costs(self, last: bool = False) -> Dict[str, DataFrame]:
         if last:
             costs = self.costs[-1].copy()
         else:
@@ -274,7 +279,8 @@ class Simulation:
         return cost_tables
 
     # pivot and get cost totals
-    def pivot_and_total(self, costs, index, columns, values, years=None, year_col='year', yearly=False):
+    def pivot_and_total(self, costs: DataFrame, index: str, columns: str, values: str,
+                        years: list = None, year_col: str = 'year', yearly: bool = False) -> DataFrame:
         cost_table = costs.pivot(index=index, columns=columns, values=values)
 
         non_year_columns = [c for c in cost_table.columns if c != year_col]
@@ -291,24 +297,24 @@ class Simulation:
         return cost_table
 
     # pull the last FRU performance
-    def get_fru_performance(self):
+    def get_fru_performance(self) -> Tuple[DataFrame, DataFrame]:
         fru_power_sample = self.fru_performance[-1]['power'].drop('site', axis='columns')
         fru_efficiency_sample = self.fru_performance[-1]['efficiency'].drop('site', axis='columns')
 
         return fru_power_sample, fru_efficiency_sample
 
     # pull last transaction log 
-    def get_transactions(self):
+    def get_transactions(self) -> DataFrame:
         transaction_sample = self.transactions[-1]
 
         return transaction_sample
 
-    def get_cash_flow(self, cost_tables):
+    def get_cash_flow(self, cost_tables: Dict[str, DataFrame]) -> DataFrame:
         cash_flow = self.cash.generate_cash_flow(cost_tables, self.size, self.scenario.get_years(cash_flow=True))
         return cash_flow
 
     # summarize results of all simulations
-    def get_results(self):
+    def get_results(self) -> Tuple[DataFrame]:
         # return results of simulation runs
         print('Consolidating results')
 

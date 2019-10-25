@@ -3,15 +3,20 @@
 # built-in imports
 import os
 import getpass
-import string
 from math import floor, ceil
+from typing import List
 
 # add-on imports
-from pandas import ExcelWriter, DataFrame
+from xlsxwriter import Workbook
+from xlsxwriter.chart import Chart
+from pandas import ExcelWriter, DataFrame, Index
+
+# self-defined imports
+from xl_inputs import Excello
 
 # stores dataframe results and prints to multiple tabs of Excel spreadhseet
-class Excelerator:
-    def __init__(self, path=None, filename='results', extension='xlsx'):
+class Excelerator(Excello):
+    def __init__(self, path: str = None, filename: str = 'results', extension: str = 'xlsx'):
         self.path = self.get_desktop() if path is None else path
         self.filename = filename
         self.extension = extension
@@ -26,7 +31,7 @@ class Excelerator:
         self.tabs = {}
 
     # get windows username to print to desktop by default
-    def get_desktop(self):
+    def get_desktop(self) -> str:
         username = getpass.getuser()
         desktop = r'c:\users\{}\Desktop\bpm results'.format(username)
         self.ensure_folder(desktop)
@@ -34,13 +39,13 @@ class Excelerator:
         return desktop
 
     # make sure folder exists and create if it doesn't
-    def ensure_folder(self, folder):
+    def ensure_folder(self, folder: str):
         if not os.path.exists(folder):
             os.makedirs(folder)
         return
 
     # find next available filename to avoid overwrite errors
-    def next_file(folder, filename, extension):
+    def next_file(folder, filename: str, extension: str) -> str:
         next_name = '{}'.format(filename)
         c = 0
         while '{}.{}'.format(next_name, extension) in os.listdir(folder):
@@ -48,33 +53,8 @@ class Excelerator:
             next_name = '{}_{}'.format(filename, c)
         return next_name
 
-    def get_excel_row(self, row):
-        xl_row = row + 1
-        return xl_row
-
-    def get_excel_column(self, column):
-        columns = string.ascii_uppercase
-        xl_column = columns[column % len(columns)]
-        if column >= len(columns):
-            xl_column = columns[floor(column/len(columns) - 1) % len(columns)] + xl_column
-
-        if column >= len(columns) ** 2:
-            xl_column = columns[floor(column/len(columns)**2 - 1) % len(columns)] + xl_column
-
-        return xl_column
-
-    # get the excel $C$R format of a position
-    def get_excel_address(self, row, column, fix=False):
-        xl_row = self.get_excel_row(row)
-        xl_column = self.get_excel_column(column)
-        
-        fixed = '$' if fix else ''
-        address = '{}{}{}{}'.format(fixed, xl_column, fixed, xl_row)
-
-        return address
-
     # rows and columns to apply formatting
-    def get_indices(self, sheetname, columns, rows=None):
+    def get_indices(self, sheetname: str, columns: Index, rows=None) -> [list, list]:
         df = self.dataframes[sheetname]
 
         if type(df) is list:
@@ -100,13 +80,11 @@ class Excelerator:
         return row_indices, column_indices
 
     # store sheet value data
-    def store_data(self, data, print_index={}):
+    def store_data(self, data: DataFrame, print_index: dict = {}):
         self.dataframes = data
         self.print_index = print_index
 
-        return
-
-    def store_formats(self, formats):
+    def store_formats(self, formats: List[dict]):
         for style in formats:
             sheetname = style['sheetname']
             rows, columns = self.get_indices(sheetname, style['columns'], rows=style.get('rows'))
@@ -115,7 +93,7 @@ class Excelerator:
         return
 
     # store chart data
-    def store_charts(self, charts):
+    def store_charts(self, charts: List[dict]):
         for chart in charts:
             sheetname = chart['sheetname']
             dfs = self.dataframes[sheetname]
@@ -154,11 +132,12 @@ class Excelerator:
         return
 
     # add tab colors to workbook
-    def store_tabs(self, tabs):
+    def store_tabs(self, tabs: dict):
         self.tabs = tabs
+        return
 
     # add values to an output sheet
-    def add_data(self, writer, sheetname):
+    def add_data(self, writer: ExcelWriter, sheetname: str):
         dfs = self.dataframes[sheetname]
 
         if type(dfs) is not list:
@@ -173,7 +152,7 @@ class Excelerator:
             row += df.shape[0] + 2 # header + space
         return
 
-    def add_format(self, writer, sheetname, style, columns, table=None, rows=None, width=None):
+    def add_format(self, writer: ExcelWriter, sheetname: str, style: str, columns: list, rows: list = None, width: int = None):
         workbook = writer.book
         worksheet = writer.sheets[sheetname]
         if style:
@@ -183,16 +162,9 @@ class Excelerator:
 
         for column in columns:
             worksheet.set_column(column, column, width, format_style if not rows else None)
-            #if rows:
-            #    df = self.dataframes[sheetname]
-            #    if table:
-            #        df = df[table]
-                
-            #    for row in rows:
-            #        worksheet.write(row, column, df.loc[row, column], format_style)
      
     # add a chart to the output
-    def add_chart(self, writer, chart, secondary_chart=None):
+    def add_chart(self, writer: ExcelWriter, chart: dict, secondary_chart: bool = None):
         chart_sheet_name = chart.get('chart sheet name', chart['sheetname'])
         offset = chart.get('offset')
 
@@ -228,14 +200,14 @@ class Excelerator:
 
         if offset:
             # paste on same sheet as data
-            insert_address = self.get_excel_address(offset[0], offset[1])
+            insert_address = Excelerator.get_xl_address(offset[0], offset[1])
             chartsheet.insert_chart(insert_address, added_chart)
         else:
             # paste on different sheet than data
             chartsheet.set_chart(added_chart)
 
     # create chart object
-    def create_chart(self, workbook, chart, secondary=False):
+    def create_chart(self, workbook: Workbook, chart: dict, secondary: bool = False) -> Chart:
         sheetname = chart['sheetname']
         columns = chart['columns']
         rows = chart['rows']
@@ -264,8 +236,9 @@ class Excelerator:
         return added_chart
 
     # create series for chart object
-    def create_series(self, added_chart, columns, sheetname, categories, category_column, rows, header_row, chart_type,
-                      chart_subtype=None, constant_lines=False, secondary=False):
+    def create_series(self, added_chart: Chart, columns: List[dict], sheetname: str,
+                      categories: List[int], category_column: int, rows: List[int], header_row: int, chart_type: str, 
+                      chart_subtype: str = None, constant_lines: bool = False, secondary: bool = False) -> Chart:
         for column in columns:
             if constant_lines:
                 name = column['name']
@@ -302,17 +275,13 @@ class Excelerator:
         return added_chart
 
     # color tab
-    def color_tab(self, writer, sheet_name):
-
-        #if self.tabs[sheet_name] in writer.sheets:
+    def color_tab(self, writer: ExcelWriter, sheet_name: str):
         workbook = writer.book
         worksheet = workbook.get_worksheet_by_name(sheet_name)
         worksheet.set_tab_color(self.tabs[sheet_name])
-        #else:
-        #    print("can't find {} tab that should be colored {}".format(sheet_name, self.tabs[sheet_name]))
-
+        
     # print output to Excel file and open
-    def to_excel(self, start=False):
+    def to_excel(self, start: bool = False):
         next_file = Excelerator.next_file(self.path, self.filename, self.extension)
         outpath = r'{}\{}.{}'.format(self.path, next_file, self.extension)
         writer = ExcelWriter(outpath, engine='xlsxwriter')
@@ -382,7 +351,8 @@ class ExcelePaint:
                       'color': '#2A7B9B'},
             }
 
-    def get_paints(windowed, limits, inputs, performance, cost_tables, power, efficiency, transactions, cash_flow):
+    def get_paints(windowed: bool, limits: dict, inputs: DataFrame, performance: DataFrame, cost_tables: DataFrame,
+                   power: DataFrame, efficiency: DataFrame, transactions: DataFrame, cash_flow: DataFrame) -> tuple:
         ranges = ExcelePaint.ranges.copy()
 
         if not windowed:
@@ -416,7 +386,8 @@ class ExcelePaint:
 
         return data, print_index, formats, charts, tabs
 
-    def _get_data(inputs, performance, cost_tables, power, efficiency, transactions, cash_flow):
+    def _get_data(inputs: DataFrame, performance: DataFrame, cost_tables: DataFrame,
+                  power: DataFrame, efficiency: DataFrame, transactions: DataFrame, cash_flow: DataFrame) -> dict:
         data = {ExcelePaint._get_symbol('inputs'): inputs,
                 ExcelePaint._get_symbol('performance'): performance,
                 ExcelePaint._get_symbol('costs'): [cost_tables[c] for c in cost_tables],
@@ -428,11 +399,11 @@ class ExcelePaint:
 
         return data
 
-    def _get_print_index(indices):
+    def _get_print_index(indices: list) -> dict:
         print_index = {ExcelePaint._get_symbol(idx): True for idx in indices}
         return print_index
 
-    def _get_formats(styles):
+    def _get_formats(styles: dict) -> list:
         formats = [{'sheetname': ExcelePaint._get_symbol(sheetname), 'columns': cols,
                     'style': ExcelePaint.num_styles.get(style),
                     'width': ExcelePaint.widths.get(style),
@@ -441,7 +412,8 @@ class ExcelePaint:
 
         return formats
 
-    def _get_charts(limits, ranges, performance, cost_tables, chart_columns, chart_columns_2, cost_key):
+    def _get_charts(limits: dict, ranges: dict, performance: DataFrame, cost_tables: DataFrame,
+                    chart_columns: list, chart_columns_2: list, cost_key: str) -> list:
         # find cost table to use for bar graph
         cost_keys = list(cost_tables.keys())
         cost_table = cost_tables[cost_key][chart_columns_2].iloc[0:-2] ## -2 = -1 for totals row -1 for last year storage
@@ -482,10 +454,10 @@ class ExcelePaint:
 
         return charts
 
-    def _get_tabs():
+    def _get_tabs() -> dict:
         tabs = {ExcelePaint.tabs[t]['symbol']: ExcelePaint.tabs[t]['color'] for t in ExcelePaint.tabs}
         return tabs
 
-    def _get_symbol(sheetname):
+    def _get_symbol(sheetname: str) -> str:
         symbol = ExcelePaint.tabs[sheetname]['symbol']
         return symbol

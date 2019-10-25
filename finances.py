@@ -1,5 +1,8 @@
 # banking functions for costs
 
+# built-in imports
+from typing import Tuple, Dict
+
 # add-on imports
 from pandas import DataFrame
 from datetime import date
@@ -10,11 +13,11 @@ from components import Component
 
 # assign costs during simulation
 class Bank:
-    def __init__(self, sql_db:SQLDB):
+    def __init__(self, sql_db: SQLDB):
         self.sql_db = sql_db
 
     # pull cost from database
-    def get_cost(self, action_date:date, action:str, component:Component=None, **kwargs) -> float:
+    def get_cost(self, action_date: date, action: str, component: Component = None, **kwargs) -> float:
         if component is not None:
             kwargs['model'] = getattr(component, 'model', None)
             kwargs['mark'] = getattr(component, 'mark', None)
@@ -24,17 +27,17 @@ class Bank:
 
 # assign fleet costs for cash flow
 class Cash:
-    def __init__(self, sql_db:SQLDB):
+    def __init__(self, sql_db: SQLDB):
         self.sql_db = sql_db
 
     # pull start cost and escalator from database
-    def get_escalator(self, item:str, action_date:date, escalator_basis:str=None) -> [float, float]:
+    def get_escalator(self, item: str, action_date: date, escalator_basis: str= None) -> Tuple[float, float]:
         start_value, escalator = self.sql_db.get_line_item(item, action_date, escalator_basis)
         return start_value, escalator
 
     # generate cash flow and transpose
-    def generate_cash_flow(self, cost_tables:dict, size:float, years:list) -> DataFrame:
-        first_columns = ['year', 'fru replacement schedule']
+    def generate_cash_flow(self, cost_tables: Dict[str, DataFrame], size: float, years: list) -> DataFrame:
+        first_columns = ['year', 'fru replacement schedule', 'fru replacement kw']
         cost_columns = {'fru costs': ['fru replacement costs',
                                       'fru repair costs',
                                       'fru overhaul costs',
@@ -53,6 +56,7 @@ class Cash:
         # drop total rows
         dollars = cost_tables['dollars'].iloc[:-1]
         quants = cost_tables['quants'].iloc[:-1]
+        power = cost_tables['power'].iloc[:-1]
 
         cash_flow = DataFrame(columns=first_columns + [x for y in [cost_columns[col] + ['total {}'.format(col)] for col in cost_columns] for x in y])
 
@@ -61,6 +65,9 @@ class Cash:
         if 'created FRU' in quants.columns:
             cash_flow.loc[:, 'fru replacement schedule'] = quants['created FRU'].values
             cash_flow.loc[:, 'fru replacement costs'] = dollars['created FRU'].values
+        for sub_col in ['created FRU', 'deployed FRU']:
+            if sub_col in power.columns:
+                cash_flow.loc[:, 'fru replacement kw'] += power[sub_col].values
         if 'repaired FRU' in dollars.columns:
             cash_flow.loc[:, 'fru repair costs'] = dollars['repaired FRU'].values
         if 'overhauled FRU' in dollars.columns:

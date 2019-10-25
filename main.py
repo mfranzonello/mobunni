@@ -2,13 +2,10 @@
 
 # inputs
 structure_db = {1: 'sqlite-local', # locally stored SQLite
-                2: 'sqlite-network', # network stored SQLite`
+                2: 'sqlite-network', # network stored SQLite
                 }[2]
 
 open_results = True # open Excel file when done running
-
-# built-in imports
-from math import floor
 
 # add-on imports
 from structure import Project, SQLDB
@@ -22,8 +19,8 @@ from simulate import Scenario, Simulation
 class ServiceModel:
     '''
     Main object to run fleet management service cost generation.
+    <<FUTURE>> This script should become an application
     '''
-
     version = 3
     welcome_text = ['Bloom Service Cost Model v{}'.format(version),
                     '~ created by Michael Franzonello et al ~']
@@ -49,7 +46,7 @@ class ServiceModel:
         return project
 
     # read database
-    def get_database(structure_db:str) -> SQLDB:
+    def get_database(structure_db: str) -> SQLDB:
         '''
         This function sets up a connection to the database for cost values,
         power and efficiency curves, compatibility, etc and for writing new
@@ -61,17 +58,21 @@ class ServiceModel:
     ''' SIMULATOR FUNCTIONS '''
 
     # get inputs for simulator
-    def get_inputs(project) -> ExcelInt:
+    def get_inputs(project: Project) -> ExcelInt:
+        '''
+        This function pulls from excel file for inputs for a project
+        to be simulaton.
+        <<FUTURE>> This should be replaced with a web-based UI.
+        '''
         excel_int = ExcelInt(project.path) # pull values from Excel file for corresponding project
         return excel_int
 
     # read structure
-    def get_structure(sql_db:SQLDB) -> [SQLDB, Thresholds]:
+    def get_structure(sql_db: SQLDB) -> [SQLDB, Thresholds]:
         '''
         This function retrieves special threshold values from the database.
         values.
         '''
-
         thresholds = Thresholds(sql_db.get_thresholds())
         return thresholds
 
@@ -81,7 +82,6 @@ class ServiceModel:
         This function gets values for the refinement of the monte-carlo
         simulations and the total number of scenarios to run.
         '''
-
         print ('Getting project details')
         n_sites, n_years, n_runs = excel_int.get_details()
         n_scenarios = excel_int.count_scenarios()
@@ -96,7 +96,6 @@ class ServiceModel:
         including contract details, site layout and technology roadmap.
         It downloads from APC-TMO if required if there is a network connection.
         '''
-
         print('Getting scenario {} details'.format(scenario_number+1))
         scenario_name, limits, start_date, contract_length, contract_deal, non_replace, \
             site_code, servers, roadmap, multiplier, \
@@ -106,22 +105,27 @@ class ServiceModel:
         new_servers = NewServers(servers)
 
         if existing_servers.exist():
+            # model an existing site
             target_size = existing_servers.get_size()
             start_date, start_month = existing_servers.get_dates() # replace start date with API value
         elif new_servers.exist():
+            # model a new site
             target_size = new_servers.get_size()
             start_month = 0
             print(new_servers)
+
+        if existing_servers.exist() or new_servers.exist():
+            # there is something to model
+            commitments = Commitments(length=contract_length, target_size=target_size, start_date=start_date,
+                                      start_month=start_month, non_replace=non_replace, limits=limits, deal=contract_deal)
+
+            technology = Technology(new_servers=new_servers, existing_servers=existing_servers, roadmap=roadmap, site_code=site_code, multiplier=multiplier)
+            tweaks = Tweaks(repair=repair, redeploy=redeploy, best=best, early_deploy=early_deploy, eoc_deploy=eoc_deploy)
+
         else:
-            target_size = 0
-            start_month = 0
-
-        commitments = Commitments(length=contract_length, target_size=target_size, start_date=start_date,
-                                  start_month=start_month, non_replace=non_replace, limits=limits, deal=contract_deal)
-
-        technology = Technology(new_servers=new_servers, existing_servers=existing_servers, roadmap=roadmap, site_code=site_code, multiplier=multiplier)
-        tweaks = Tweaks(repair=repair, redeploy=redeploy, best=best, early_deploy=early_deploy, eoc_deploy=eoc_deploy)
-
+            # there is nothing to model
+            commitments, technology, tweaks = [None]*3
+            
         scenario = Scenario(scenario_number, scenario_name, commitments, technology, tweaks)
         return scenario
 
@@ -157,7 +161,7 @@ class ServiceModel:
         '''
         This function takes the stored values in a simulation and
         packages them in an Excel format.
-        Some of this can be replaced with a web-based output UI.
+        <<FUTURE>> Some of this can be replaced with a web-based output UI.
         '''
         inputs, site_performance, cost_tables, fru_power, fru_efficiency, transactions, cash_flow = simulation.get_results()
     
@@ -176,13 +180,22 @@ class ServiceModel:
     ''' DATA ADDING FUNCTIONS '''
 
     # get inputs for new data
-    def get_data(project:Project, sql_db:SQLDB) -> ExcelSQL:
+    def get_data(project: Project, sql_db: SQLDB) -> ExcelSQL:
+        '''
+        This function gets module data and power and efficiency curves
+        from an Excel input to add to the database.
+        <<FUTURE>> This should be replaced with a web-based UI.
+        '''
         excel_sql = ExcelSQL(project.path, sql_db) # pull values from Excel file for new data
         return excel_sql
 
     # add new data to database
-    def add_data(excel_sql:ExcelSQL):
-
+    def add_data(excel_sql: ExcelSQL):
+        '''
+        This function adds module data and power and efficiency curves
+        to the database. It converts matrix curve inputs to single arrays.
+        <<FUTURE>> This should be replaced with a web-based UI.
+        '''
         print('Updating database')
         excel_sql.import_all_curves()
         return
@@ -194,7 +207,6 @@ class ServiceModel:
         '''
         This function excutes the functions above.
         '''
-
         ServiceModel.welcome()
 
         project  = ServiceModel.get_project()

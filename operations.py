@@ -5,6 +5,7 @@ from dateutil.relativedelta import relativedelta
 from datetime import date
 from random import randrange
 from math import floor
+from typing import List, Tuple, Union
 
 # add-on imports
 from pandas import DataFrame, Series, concat, to_datetime, to_numeric, isna
@@ -14,6 +15,7 @@ from numpy import nan
 from structure import SQLDB
 from powerful import PowerModules, HotBoxes, EnergyServers
 from components import Component, FRU, Enclosure, Server
+from properties import Site
 from finances import Bank
 from groups import Thresholds, Technology, Tweaks
 
@@ -36,15 +38,16 @@ class LogBook:
         return num
 
     # record log of transactions
-    def record_transaction(self, action_date:date, serial:str, model:str, model_number:str, power:float, efficiency:float,
-                           action:str, direction:str, site_number:str, server_number:str, enclosure_number:str, cost:float, reason:str=None):
+    def record_transaction(self, action_date: date, serial: str, model: str, model_number: str, power: float, efficiency: float,
+                           action: str, direction: str, site_number: str, server_number: str, enclosure_number: str, cost: float,
+                           reason: str = None):
         self.transactions.loc[len(self.transactions), :] = [action_date, serial, model, model_number, power, efficiency,
                                                             action, direction,
                                                             self.number(site_number), self.number(server_number), self.number(enclosure_number),
                                                             cost, reason]
 
     # store power and efficiency
-    def record_performance(self, table:str, site_number:str, *args):
+    def record_performance(self, table: str, site_number: str, *args):
         if table == 'site':
             [performance] = args
             self.performance['site'][site_number] = performance
@@ -57,7 +60,7 @@ class LogBook:
             self.performance['fru'][site_number] = {'power': power, 'efficiency': efficiency}
 
     # combine transactions by year, site and action
-    def get_transactions(self, site_number:str=None, last_date:bool=None) -> DataFrame:
+    def get_transactions(self, site_number: str = None, last_date: bool = None) -> DataFrame:
         transactions = self.transactions.copy()
 
         if site_number is not None:
@@ -69,19 +72,20 @@ class LogBook:
 
         return transactions
 
-    def get_performance(self, table:str, site_number:str) -> DataFrame:
+    def get_performance(self, table: str, site_number: str) -> DataFrame:
         performance = self.performance[table][site_number]
         return performance
 
     # return series of value if site is target site
-    def identify_target(self, sites:DataFrame, site_number:str, site_col:str='site', site_adder:bool=True, target_col:str='target') -> DataFrame:
+    def identify_target(self, sites: DataFrame, site_number: str,
+                        site_col: str = 'site', site_adder: bool = True, target_col: str = 'target') -> DataFrame:
         target_series = sites[site_col] == (site_number + site_adder)
         target_identified = concat([sites, target_series.rename(target_col)], axis='columns')
 
         return target_identified
 
     # combine transactions by year, site and action
-    def summarize_transactions(self, site_number:str) -> DataFrame:
+    def summarize_transactions(self, site_number: str) -> DataFrame:
         transactions_yearly = self.get_transactions()
         transactions_yearly.insert(0, 'year', to_datetime(transactions_yearly['date']).dt.year)
         transactions_gb = transactions_yearly[['year', 'site', 'action', 'service cost', 'power']].groupby(['year', 'site', 'action'])
@@ -97,14 +101,14 @@ class LogBook:
 
 # template for new modules and servers
 class Templates:
-    def __init__(self, power_modules:PowerModules, hot_boxes:HotBoxes, energy_servers:EnergyServers):
+    def __init__(self, power_modules: PowerModules, hot_boxes: HotBoxes, energy_servers: EnergyServers):
         self.power_modules = power_modules
         self.hot_boxes = hot_boxes
         self.energy_servers = energy_servers
 
         self.components = {comp: {} for comp in ['module', 'enclosure', 'server']}
 
-    def find_component(self, component_type:str, model:str=None, mark:str=None, model_number:str=None, serial=None, **kwargs) -> Component:
+    def find_component(self, component_type: str, model: str = None, mark: str = None, model_number: str = None, serial = None, **kwargs) -> Component:
         key = tuple(m for m in [model, mark, model_number] if m is not None)
         
         if key not in self.components[component_type]:
@@ -114,7 +118,7 @@ class Templates:
 
         return component
 
-    def ghost_component(self, component_type:str, key:tuple, model:str=None, mark:str=None, model_number:str=None):
+    def ghost_component(self, component_type: str, key: tuple, model: str = None, mark: str = None, model_number: str = None):
         if component_type == 'module':
             component = self.ghost_module(model, mark, model_number)
 
@@ -126,7 +130,7 @@ class Templates:
 
         self.components[component_type][key] = component
 
-    def ghost_module(self, model:str, mark:str, model_number:str) -> FRU:
+    def ghost_module(self, model: str, mark: str, model_number: str) -> FRU:
         serial, install_date = [None]*2 # blank serial and date
 
         power_curves, efficiency_curves = self.power_modules.get_curves(model, mark, model_number)
@@ -139,14 +143,14 @@ class Templates:
 
         return fru
 
-    def ghost_enclosure(self, model:str, model_number:str) -> Enclosure:
+    def ghost_enclosure(self, model: str, model_number: str) -> Enclosure:
         serial, number = [None]*2
         _, nameplate = self.hot_boxes.get_model_details(model)
         enclosure = Enclosure(serial, number, model, model_number, nameplate)
 
         return enclosure
 
-    def ghost_server(self, model:str, model_number:str) -> Server:
+    def ghost_server(self, model: str, model_number: str) -> Server:
         serial, number = [None]*2
 
         nameplate = self.energy_servers.get_server_model(server_model_class=model, server_model_number=model_number)['nameplate']
@@ -157,7 +161,7 @@ class Templates:
 
 # warehouse to store, repair and deploy old FRUs and create new FRUs
 class Shop:
-    def __init__(self, sql_db:SQLDB, thresholds:Thresholds, install_date:date, non_replace:DataFrame, tweaks:Tweaks, technology:Technology):
+    def __init__(self, sql_db: SQLDB, thresholds: Thresholds, install_date: date, non_replace: DataFrame, tweaks: Tweaks, technology: Technology):
         self.power_modules = PowerModules(sql_db)
         self.hot_boxes = HotBoxes(sql_db)
         self.energy_servers = EnergyServers(sql_db)
@@ -182,19 +186,19 @@ class Shop:
         self.next_serial = {'ES': 0, 'PWM': 0, 'ENC': 0}
 
     # record log of transactions
-    def transact(self, serial:str, model:str, model_number:str, power:float, efficiency:float,
-                 action:str, direction:str, site_number:str, server_number:str, enclosure_number:str, cost:float, reason:str=None):
+    def transact(self, serial: str, model: str, model_number: str, power: float, efficiency: float,
+                 action: str, direction: str, site_number: str, server_number: str, enclosure_number: str, cost: float, reason: str = None):
         self.log_book.record_transaction(self.date, serial, model, model_number, power, efficiency,
                                          action, direction, site_number, server_number, enclosure_number, cost, reason)
 
     # return serial number for component tracking
-    def get_serial(self, component:str) -> str:
+    def get_serial(self, component: str) -> str:
         self.next_serial[component] += 1
         serial = '{}{}'.format(component, str(self.next_serial[component]).zfill(6))
         return serial
 
     # get cost for action
-    def get_cost(self, action:str, component:str=None, **kwargs) -> float:
+    def get_cost(self, action: str, component: str = None, **kwargs) -> float:
         cost = self.bank.get_cost(self.date, action, component, **kwargs)
         return cost
 
@@ -204,8 +208,8 @@ class Shop:
         return replaceable
 
     # copy a FRU from a template
-    def create_fru(self, model:str, mark:str, model_number:str, install_date:date, site_number:str, server_number:str, enclosure_number:str,
-                   initial:bool=False, current_date:date=None, fit:dict=None, reason:str=None) -> FRU:
+    def create_fru(self, model: str, mark: str, model_number: str, install_date: date, site_number: str, server_number: str, enclosure_number: str,
+                   initial: bool = False, current_date: date = None, fit: dict = None, reason: str = None) -> FRU:
 
         serial = self.get_serial('PWM')
         
@@ -229,7 +233,8 @@ class Shop:
         return fru
 
     # take a FRU from a site and add to storage queue
-    def store_fru(self, fru, site_number, server_number, enclosure_number, repair=False, final=False, reason=None):
+    def store_fru(self, fru: FRU, site_number: int, server_number: str, enclosure_number: str, repair: bool = False, final: bool = False,
+                  reason: str = None):
         self.storage.append(fru)
 
         cost = self.get_cost('store fru') if not final else 0 # decommissioning doesn't count as service
@@ -249,7 +254,7 @@ class Shop:
         return
 
     # take a FRU out of storage to send to site    
-    def deploy_fru(self, queue, site_number, server_number, enclosure_number, reason=None):
+    def deploy_fru(self, queue: int, site_number: int, server_number: str, enclosure_number: str, reason: str = None) -> FRU:
         fru = self.deployable.pop(queue)
         
         cost = self.get_cost('deploy fru')
@@ -270,7 +275,7 @@ class Shop:
         self.storage = []
 
     # move FRUs between energy servers at a site
-    def balance_frus(self, fru, site_number, server1, enclosure1, server2, enclosure2, reason=None):
+    def balance_frus(self, fru: FRU, site_number: int, server1: str, enclosure1: str, server2: str, enclosure2: str, reason: str = None):
         cost = self.get_cost('balance fru')
 
         self.transact(fru.serial, fru.model, fru.get_model_number(), fru.get_power(), fru.get_efficiency(),
@@ -280,7 +285,7 @@ class Shop:
                      'moved FRU', 'to', site_number, server2, enclosure2, cost/2, reason=reason)
 
     # overhaul a FRU to make it refurbished and bespoke
-    def overhaul_fru(self, queue, stacks, site_number, server_number, enclosure_number, reason=None):
+    def overhaul_fru(self, queue: int, stacks: List[int], site_number: str, server_number: str, enclosure_number: str, reason: str = None) -> FRU:
         fru = self.junked.pop(queue)
 
         fru.overhaul(stacks)
@@ -290,7 +295,7 @@ class Shop:
         return fru
 
     # get lastest version of energy server, power module or hotbox
-    def get_latest_model(self, category, base_model, install_date=None, **kwargs):
+    def get_latest_model(self, category: str, base_model: str, install_date: date = None, **kwargs) -> Union[str, Tuple[str]]:
         if category == 'server':
             model = self.energy_servers.get_latest_server_model(install_date, base_model, **kwargs)
             return model
@@ -309,8 +314,8 @@ class Shop:
             return model
 
     # find FRU in deployable or junk that best fits requirements
-    def find_fru(self, allowed_models, power_needed=0, energy_needed=0, efficiency_needed=0, 
-                 time_needed=0, max_power=None, junked=False):
+    def find_fru(self, allowed_models: Series, power_needed: float = 0, energy_needed: float = 0, efficiency_needed: float = 0, 
+                 time_needed: int = 0, max_power: float = None, junked: bool = False) -> Tuple[int, int]:
         powers = self.list_powers(allowed_models, junked=junked) - power_needed
         energies = self.list_energies(allowed_models, time_needed, junked=junked) - energy_needed
         efficiencies = self.list_efficiencies(allowed_models, junked=junked) - efficiency_needed
@@ -335,7 +340,7 @@ class Shop:
         return queue, stacks
     
     # get power value of each fru in storage
-    def list_powers(self, allowed_models, junked=False):
+    def list_powers(self, allowed_models: Series, junked: bool = False) -> DataFrame:
         powers = DataFrame(columns=self.list_stacks(allowed_models, junked))
         location = self.junked if junked else self.deployable
         for fru in location:
@@ -351,7 +356,7 @@ class Shop:
         return powers
 
     # get energy value of each fru in storage
-    def list_energies(self, allowed_models, time_needed, junked=False):
+    def list_energies(self, allowed_models: Series, time_needed: int, junked: bool = False) -> DataFrame:
         energies = DataFrame(columns=self.list_stacks(allowed_models, junked))
         location = self.junked if junked else self.deployable
         for fru in location:
@@ -368,7 +373,7 @@ class Shop:
         return energies
 
     # get efficiency value of each fru in storage
-    def list_efficiencies(self, allowed_models, junked=False):
+    def list_efficiencies(self, allowed_models: Series, junked: bool = False) -> DataFrame:
         efficiencies = DataFrame(columns=self.list_stacks(allowed_models, junked))
         location = self.junked if junked else self.deployable
         for fru in location:
@@ -385,7 +390,7 @@ class Shop:
         return efficiencies
 
     # get stack value of each fru in storage
-    def list_stacks(self, allowed_models, junked=False):
+    def list_stacks(self, allowed_models: Series, junked: bool = False) -> List[int]:
         if junked:
             stacks_list = [x for y in [self.power_modules.get_stacks(fru.model, fru.mark, fru.model_number) \
                 for fru in self.junked if fru.model in allowed_models.to_list()] for x in y]
@@ -397,8 +402,9 @@ class Shop:
         return stacks_list
 
     # use a stored FRU or create a new one for power and energy requirements
-    def get_best_fit_fru(self, server_model, install_date, site_number, server_number, enclosure_number,
-                         power_needed=0, energy_needed=0, efficiency_needed=0, time_needed=0, max_power=None, initial=False, reason=None):
+    def get_best_fit_fru(self, server_model: str, install_date: date, site_number: int, server_number: str, enclosure_number: str,
+                         power_needed: float = 0, energy_needed: float = 0, efficiency_needed: float = 0, time_needed: int = 0,
+                         max_power: float = None, initial: bool = False, reason: str = None) -> FRU:
         allowed_modules = self.energy_servers.get_compatible_modules(server_model)
        
         storage_location = {'deployable': False, 'junked': True}
@@ -450,40 +456,14 @@ class Shop:
         return fru
 
     # get base model of a server model number
-    def get_server_model(self, server_model_number):
+    def get_server_model(self, server_model_number: str) -> str:
         server_model = self.energy_servers.get_server_model(server_model_number=server_model_number)['model']
         return server_model
-
-    # get model types to most closely match target size
-    def prepare_servers(self, new_servers, target_size):
-        # check if server model number is given
-        if (new_servers is not None) and (len(new_servers['model'])):
-            # get values from database
-            server_model_number = new_servers['model']
-            server_model = self.energy_servers.get_server_model(server_model_number=new_servers['model'])
-            server_count = int(target_size / server_model['nameplate'])
-
-        else:
-            # check if server model class is available in given year, else use next best
-            target_model = new_servers['model'] if new_servers is not None else None
-            latest_server_model_class = self.energy_servers.get_latest_server_model(self.date, target_model)
-        
-            # get default nameplate sizes   
-            server_nameplates = self.energy_servers.get_server_nameplates(latest_server_model_class, target_size)
-
-            # determine max number of various size servers could fit
-            server_nameplates.loc[:, 'fit'] = (target_size / server_nameplates['nameplate']).astype(int)
-            # find lost potential because of server sizes
-            server_nameplates.loc[:, 'loss'] = target_size - (server_nameplates['nameplate'] * server_nameplates['fit'])
-            # return best fit model to minimize potential loss
-            server_model_number, server_count = server_nameplates.sort_values('loss')[['model_number', 'fit']].iloc[0]
-
-        return server_model_number, server_count
-
+    
     # create a new energy server
-    def create_server(self, site_number, server_number, server_model_number=None, server_model_class=None,
-                      nameplate_needed=0, enclosure_numbers=None,
-                      reason='populating site'):
+    def create_server(self, site_number: int, server_number: str, server_model_number: str = None, server_model_class: str = None,
+                      nameplate_needed: float = 0, enclosure_numbers: list = None,
+                      reason: str = 'populating site') -> Server:
         serial = self.get_serial('ES')
 
         n_enclosures = len(enclosure_numbers) if (enclosure_numbers is not None) else None
@@ -514,15 +494,15 @@ class Shop:
         return server
 
     # upgrade server inverter to a higher capactiy ## NOT USED YET
-    def upgrade_server(self, server, site_number, nameplate, reason=None):
+    def upgrade_server(self, server: Server, site_number: int, nameplate: float, reason: str = None):
         server.upgrade_nameplate(nameplate)
         cost = self.get_cost('upgrade server', server, power=nameplate - server.nameplate)
         self.transact(server.serial, server.model, server.get_model_number(), nameplate, None,
                      'upgraded ES', 'at', site_number, server.number, None, cost, reason=reason)
-        pass
+        return
 
     # upgrade components on enclosure to allow more power throughput for new module tech
-    def upgrade_enclosures(self, site_number, server, new_fru, reason=None):
+    def upgrade_enclosures(self, site_number: int, server: Server, new_fru: FRU, reason: str = None):
         cost = self.get_cost('upgrade enclosure')
 
         enclosure_model_number, enclosure_nameplate = self.hot_boxes.get_model_details(new_fru.model)
@@ -535,14 +515,14 @@ class Shop:
         return
     
     # return nameplate rating of server model
-    def get_server_nameplate(self, server_model):
+    def get_server_nameplate(self, server_model: str) -> float:
         nameplate = self.energy_servers.get_server_nameplates(server_model)
         return nameplate
 
     # create an enclosure cabinent to add to a server to house a FRU
-    def create_enclosures(self, site_number, server, enclosure_model, enclosure_model_number,
-                          start_number=0, enclosure_count=0, plus_one_count=0, enclosure_numbers=None,
-                          reason='populating server'):
+    def create_enclosures(self, site_number: int, server: Server, enclosure_model: str, enclosure_model_number: str,
+                          start_number: int = 0, enclosure_count: int = 0, plus_one_count: int = 0, enclosure_numbers: List[str] = None,
+                          reason: str = 'populating server') -> List[Enclosure]:
         # get cost per enclosure
         costs = enclosure_count * [self.get_cost('intialize enclosure')] + plus_one_count * [self.get_cost('add enclosure')] 
        
@@ -583,7 +563,8 @@ class Shop:
 
 # collection of sites and a shop to move FRUs between
 class Fleet:
-    def __init__(self, target_size, total_sites, install_years, system_sizes, system_dates, start_date, min_date):
+    def __init__(self, target_size: float, total_sites: int, install_years: int, system_sizes: List[float], system_dates: List[date],
+                 start_date: date, min_date: date):
         self.total_sites = total_sites
         self.install_years = install_years
 
@@ -618,7 +599,7 @@ class Fleet:
         self.install_months_count = self.install_months.value_counts(sort=False)
 
     # pick target install sequence order
-    def set_up_target_site(self, start_date, min_date):
+    def set_up_target_site(self, start_date: date, min_date: date):
         delta = relativedelta(start_date, min_date)
         max_month = delta.years*12 + delta.months
 
@@ -628,45 +609,45 @@ class Fleet:
         self.install_sizes.insert(self.target_site, self.target_size)
 
     # return number of sites to install in a given month
-    def get_install_count(self, month):
+    def get_install_count(self, month: int) -> int:
         count = self.install_months_count.get(month, 0)
         return count
         
     # add shop to fleet
-    def add_shop(self, shop):
+    def add_shop(self, shop: Shop):
         self.shop = shop
         return
 
     # add site to fleet    
-    def add_site(self, site):
+    def add_site(self, site: Site):
         self.sites.append(site)
         return
 
     # remove site from fleet
-    def remove_site(self, site):
+    def remove_site(self, site: Site):
         self.sites = [s for s in self.sites if s is not site]
         # record power and efficiency
         self.store_site_performance(site)
         self.store_fru_performance(site)
 
     # store site power and efficiency
-    def store_site_performance(self, site):
+    def store_site_performance(self, site: Site):
         self.shop.log_book.record_performance('site', site.number, site.monitor.get_results('performance'))
         return
 
     # store FRU power and efficiency
-    def store_fru_performance(self, site):
+    def store_fru_performance(self, site: Site):
         self.shop.log_book.record_performance('fru', site.number, site.monitor.get_results('power'), site.monitor.get_results('efficiency'))
         return
 
     # get transaction log
-    def get_transactions(self, site_number=None, last_date=None):
+    def get_transactions(self, site_number: int = None, last_date: bool = None) -> DataFrame:
         if self.shop is not None:
             transactions = self.shop.log_book.get_transactions(site_number, last_date)
             return transactions
 
     # combine transactions by year, site and action
-    def summarize_transactions(self, site_number='target'):
+    def summarize_transactions(self, site_number: int = 'target') -> DataFrame:
         if site_number == 'target':
             site_number = self.target_site
 
@@ -675,7 +656,7 @@ class Fleet:
         return transactions
 
     # return power and efficiency of all a site
-    def summarize_site_performance(self, site_number='target'):
+    def summarize_site_performance(self, site_number: int = 'target') -> DataFrame:
         if site_number == 'target':
             site_number = self.target_site
 
@@ -688,7 +669,7 @@ class Fleet:
         return site_performance
 
     # return power and efficiency of all FRUs at a site
-    def get_fru_performance(self, site_number='target'):
+    def get_fru_performance(self, site_number: int = 'target') -> DataFrame:
         if site_number == 'target':
             site_number = self.target_site
 

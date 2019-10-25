@@ -13,7 +13,7 @@ from structure import SQLDB
 # legal commitments for a site or group of sites
 class Contract:
     limits_values = ['PTMO', 'WTMO', 'CTMO', 'Peff', 'Weff', 'Ceff', 'window']
-    def __init__(self, number:int, deal:str, length:int, target_size:float, start_date:date, start_month:int, limits:dict):
+    def __init__(self, number: int, deal: str, length: int, target_size: float, start_date: date, start_month: int, limits: dict):
         self.number = number
         self.deal = deal
 
@@ -46,7 +46,7 @@ class Contract:
 # collection of contracts across sites
 class Portfolio:
     limits_values = Contract.limits_values
-    def __init__(self, sql_db:SQLDB):
+    def __init__(self, sql_db: SQLDB):
         self.contracts = []
         self.number = 0
         self.sql_db = sql_db
@@ -56,8 +56,8 @@ class Portfolio:
         number = self.number
         return number
 
-    def generate_contract(self, target_size:float, start_date:date, start_month:int,
-                          deal:str=None, length:int=None, limits:dict=None) -> Contract:
+    def generate_contract(self, target_size: float, start_date: date, start_month: int,
+                          deal: str = None, length: int = None, limits: dict = None) -> Contract:
 
         number = self.get_number()
 

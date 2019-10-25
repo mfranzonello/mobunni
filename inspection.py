@@ -1,8 +1,18 @@
 # tools to record and check if sites are performing to contract specifications
 
+# built-in imports
+from __future__ import annotations
+from typing import TYPE_CHECKING, List, Tuple
+from datetime import date
+
 # add-on imports
 from pandas import DataFrame, Series, date_range
 from numpy import nan
+
+# self-defined imports
+if TYPE_CHECKING:
+    from properties import Site
+from components import FRU
 
 # performance, power and efficiency of a site
 class Monitor:
@@ -12,7 +22,7 @@ class Monitor:
                            'ceiling loss']
     power_eff_columns = ['date', 'total']
 
-    def __init__(self, site_number, start_date, contract_length, windowed):
+    def __init__(self, site_number: int, start_date: date, contract_length: int, windowed: bool):
         self.contract_date_range = date_range(start=start_date, periods=contract_length*12, freq='MS').date
         self._performance = DataFrame(columns=Monitor.performance_columns,
                                     index=range(contract_length*12),
@@ -28,7 +38,7 @@ class Monitor:
         self._efficiency = None
 
     # set up matrix for power and efficiency output
-    def set_up(self, servers):
+    def set_up(self, servers: List[str]):
         ceiling = ['=', '-']
 
         power_eff = DataFrame(columns=['date'])
@@ -44,13 +54,13 @@ class Monitor:
         self._efficiency = self._power.drop(drop, axis='columns')
 
     # add a result from a site inspection
-    def store_result(self, table, column, month, value):
+    def store_result(self, table: str, column: str, month: int, value: float):
         {'performance': self._performance,
          'power': self._power,
          'efficiency': self._efficiency}[table].loc[month, column] = value
 
     # return a result for a site inspection
-    def get_result(self, table, column, month, start_month=0, function=None):
+    def get_result(self, table: str, column: str, month: int, start_month: int = 0, function: str = None) -> float:
         df = {'performance': self._performance,
               'power': self._power,
               'efficiency': self._efficiency}[table]
@@ -68,7 +78,7 @@ class Monitor:
         return result
 
     # return a set of results
-    def get_results(self, table):
+    def get_results(self, table: str) -> DataFrame:
         results = {'performance': self._performance,
                    'power': self._power,
                    'efficiency': self._efficiency}[table].copy()
@@ -77,7 +87,7 @@ class Monitor:
 # methods to see if a site is performing according to contract
 class Inspector:
     # see if swapping FRUs minimizes ceiling loss
-    def look_for_balance(site):
+    def look_for_balance(site: Site) -> dict:
         nameplates = Series([server.nameplate for server in site.get_servers()], index=site.get_server_numbers())
         fru_powers = site.get_fru_power()
         server_powers = fru_powers.sum(axis='columns')
@@ -144,12 +154,12 @@ class Inspector:
         return swaps
 
     # check if a commitment is missed
-    def check_fail(site, value, limit, pad=0):
+    def check_fail(site, value: float, limit: float, pad: float = 0) -> bool:
         fail = (limit is not None) and (value < limit + pad)
         return fail
 
     # check if commitments are missed
-    def check_fails(site, pairs):
+    def check_fails(site: Site, pairs: dict) -> dict:
         fails = []
         for value, limit in pairs:
             fails.append(Inspector.check_fail(site, value, limit))
@@ -157,7 +167,7 @@ class Inspector:
         return fails
 
     # FRUs that have degraded or are less efficienct
-    def get_replaceable_frus(site, by):
+    def get_replaceable_frus(site: Site, by: str) -> DataFrame:
         if by in ['power', 'energy']:
             replaceable = [[enclosure.fru.is_degraded(site.shop.thresholds['degraded']) \
                 if enclosure.is_filled() else True for enclosure in server.get_enclosures()] for server in site.get_servers()]
@@ -171,7 +181,7 @@ class Inspector:
         return replaceable_frus
 
     # location of the worst performing FRU
-    def get_worst_fru(site, by):
+    def get_worst_fru(site: Site, by: str) -> Tuple[str, str]:
         fillable_servers = [server for server in site.get_servers() if server.has_empty(dead=True)]
 
         if len(fillable_servers):
@@ -218,7 +228,7 @@ class Inspector:
         return server_number, enclosure_number
 
     # check if FRUs need to be repaired, replaced or redeployed
-    def check_site(site):
+    def check_site(site: Site):
         # store current status
         commitments, fails = site.store_performance()
 
@@ -259,7 +269,7 @@ class Inspector:
         return
         
     # look for repair opportunities
-    def check_repairs(site):
+    def check_repairs(site: Site) -> Tuple[dict, dict]:
         for server in site.get_servers():
             for enclosure in server.get_enclosures():
                 if enclosure.is_filled() and enclosure.fru.is_deviated(site.shop.thresholds['deviated']):
@@ -276,7 +286,7 @@ class Inspector:
         return commitments, fails
 
     # check how much power can be installed without ceiling loss for plus ones and if a new FRU exists
-    def check_max_power(site, new_fru=False):
+    def check_max_power(site: Site, new_fru: FRU = False) -> Tuple[float, bool]:
         # ensure no ceiling loss
         max_power = Inspector.look_for_balance(site).get('max headroom')
         installable = (new_fru is not None) and ((max_power is None) or (max_power > 0))
@@ -284,13 +294,10 @@ class Inspector:
         return max_power, installable
 
     # look for early deploy opportunities
-    def check_deploys(site, commitments, cumulative=False, periodic=False):
+    def check_deploys(site: Site, commitments: dict, cumulative: bool = False, periodic: bool = False) -> Tuple[dict, dict]:
         lookahead = site.get_months_remaining()
 
         max_power, installable = Inspector.check_max_power(site)
-        # only check if there is room to add
-        ##if max_power <= site.shop.thresholds.get('ceiling loss', 0):
-        ##    pass
 
         # check during any period before no deployments allowed
         if cumulative:
@@ -312,7 +319,8 @@ class Inspector:
            
                 reason = 'early deploy: expected CTMO {:0.02%} below target {:0.02%}'.format(expected_ctmo, site.limits['CTMO'] + site.shop.thresholds['tmo pad'])
                 new_fru = site.shop.get_best_fit_fru(site.servers[server_dc].model, site.get_date(), site.number, server_dc, enclosure_dc,
-                                                     energy_needed=energy_needed, time_needed=lookahead, max_power=max_power, reason=reason)
+                                                     energy_needed=energy_needed, time_needed=lookahead, max_power=None if periodic else max_power, # last possible chance before EoC allows for ceiling loss
+                                                     reason=reason)
 
                 site.replace_and_balance(server_dc, enclosure_dc, new_fru, reason=reason)
                 expected_ctmo = (site.get_energy_produced() + site.get_energy_remaining()) / (site.contract.length * 12) / site.system_size
@@ -357,7 +365,7 @@ class Inspector:
 
                 reason = 'early deploy: expected PTMO {:0.02%} below target {:0.02%}'.format(expected_ptmo, site.limits['PTMO'] + site.shop.thresholds['tmo pad'])
                 new_fru = site.shop.get_best_fit_fru(site.servers[server_dp].model, site.get_date(), site.number, server_dp, enclosure_dp,
-                                        power_needed=power_needed, time_needed=lookahead, max_power=max_power, reason=reason)
+                                        power_needed=power_needed, time_needed=lookahead, max_power=None, reason=reason)
 
                 site.replace_and_balance(server_dp, enclosure_dp, new_fru, reason=reason)
                 expected_ptmo = site.get_site_power(lookahead=lookahead) / site.system_size
@@ -369,7 +377,7 @@ class Inspector:
         return commitments, fails
 
     # look for FRU replacements to meet TMO commitments
-    def check_tmo(site, commitments, fails, server_p, enclosure_p):
+    def check_tmo(site: Site, commitments: dict, fails: dict, server_p: str, enclosure_p: str) -> Tuple[dict, dict, str, str, str, str]:
         power_pulled = site.servers[server_p].enclosures[enclosure_p].fru.get_power() \
             if site.servers[server_p].enclosures[enclosure_p].is_filled() else 0
 
@@ -405,7 +413,7 @@ class Inspector:
         return commmitments, fails, server_p, enclosure_p, server_e, enclosure_e
 
     # look for FRUs replacements to meet efficiency commitment
-    def check_efficiency(site, commitments, fails, server_e, enclosure_e):
+    def check_efficiency(site: Site, commitments: dict, fails: dict, server_e: str, enclosure_e: str) -> Tuple[dict, dict, str, str, str, str]:
         # match power, energy and efficiency of replacing FRU
         efficiency_pulled = (site.servers[server_e].enclosures[enclosure_e].fru.get_efficiency() * \
             site.servers[server_e].enclosures[enclosure_e].fru.get_power()) \
@@ -459,12 +467,12 @@ class Inspector:
         return commitments, fails, server_p, enclosure_p, server_e, enclosure_e
 
     # look at TMO and efficiency and find next worst FRU
-    def check_worst_fru(site):
+    def check_worst_fru(site: Site) -> Tuple[dict, dict, str, str, str, str]:
         commitments, fails = site.store_performance()
         server_p, enclosure_p = Inspector.get_worst_fru(site, 'power')
         server_e, enclosure_e = Inspector.get_worst_fru(site, 'efficiency')
         return commitments, fails, server_p, enclosure_p, server_e, enclosure_e
 
-    def check_exists(*servers_and_enclosures):
+    def check_exists(*servers_and_enclosures) -> bool:
         exists = all(s_or_e is not None for s_or_e in servers_and_enclosures)
         return exists

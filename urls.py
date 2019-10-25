@@ -1,5 +1,8 @@
 # class for interatcting with networked databases and APIs
 
+# built-in imports
+from typing import Tuple
+
 class URL:
     databases = {'sqlite-local': {'parameters': {'connector': 'sqlite',
                                                  'database': 'bpm'},
@@ -14,12 +17,12 @@ class URL:
     apc_tmo = {'host': 'https://tmo-portal.ionamerica.priv',
                'port': '4433'}
 
-    def get_database(db_type: str):
+    def get_database(db_type: str) -> str:
         url = URL.databases[db_type]['string format'].format(**URL.databases[db_type]['parameters'])
 
         return url
 
-    def get_apc():
+    def get_apc() -> Tuple[str, str]:
         url ='{host}'.format(**URL.apc_tmo)
         endpoint = '{host}:{port}'.format(**URL.apc_tmo)
 

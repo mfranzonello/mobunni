@@ -1,11 +1,17 @@
 # physical field replaceable unit power modules (FRUs) and energy servers (with enclosure cabinets)
 
 # built-in imports
+from __future__ import annotations
 from inspect import signature
+from datetime import date
+from dateutil.relativedelta import relativedelta
+from typing import Dict, List, Union
 
 # add-on imports
-from pandas import concat
-from dateutil.relativedelta import relativedelta
+from pandas import DataFrame, Series, concat
+
+# self-defined imports
+from powerful import PowerCurves, EfficiencyCurves
 
 class Component:
     refurb_tag = '-R'
@@ -15,7 +21,7 @@ class Component:
     a mark, essentially a subcategory of a base model.
     Each component has a serial number for blockchain tracking.
     '''
-    def __init__(self, serial, model, model_number, **kwargs):
+    def __init__(self, serial: str, model: str, model_number: str, **kwargs):
         self.serial = serial
         self.model = model
         self.model_number = model_number
@@ -32,7 +38,7 @@ class Component:
         if 'number' in kwargs:
             self.number = kwargs['number']
 
-    def get_model_number(self):
+    def get_model_number(self) -> str:
         '''
         A refurbed component is tagged with -R
         '''
@@ -40,7 +46,7 @@ class Component:
         return model_number
 
     # create a copy of the base component
-    def copy(self, serial, **kwargs):
+    def copy(self, serial: str, **kwargs) -> Component:
         '''
         The shop uses a template FRU to produce
         new versions.
@@ -63,10 +69,10 @@ class FRU(Component):
     with a new energy server) or "FRU" (installed as a
     replacement for an original module).
     '''
-    def __init__(self, serial, model, mark, model_number,
-                 rating, power_curves, efficiency_curves, stacks,
-                 install_date, current_date,
-                 fit=None):
+    def __init__(self, serial: str, model: str, mark: str, model_number: str,
+                 rating: float, power_curves: PowerCurves, efficiency_curves: EfficiencyCurves, stacks: int,
+                 install_date: date, current_date: date,
+                 fit: dict = None):
         # FRU defined by sampled power curve at given installation year
         # FRUs are typically assumed to be new and starting at time 0, otherwise they follow the best fit power curve
         Component.__init__(self, serial, model, model_number, mark=mark, rating=rating)
@@ -87,7 +93,7 @@ class FRU(Component):
         self.max_efficiency = self.efficiency_curve.max()
       
     # month to look at
-    def get_month(self, lookahead=None):
+    def get_month(self, lookahead: int = None) -> int:
         '''
         Current or future state of component
         '''
@@ -97,7 +103,7 @@ class FRU(Component):
         return month
 
     # power at current degradation level
-    def get_power(self, ideal=False, lookahead=None):
+    def get_power(self, ideal: bool = False, lookahead: int = None) -> float:
         if self.is_dead(lookahead=lookahead):
             power = 0
 
@@ -119,33 +125,33 @@ class FRU(Component):
         return power
 
     # get performance fit so far
-    def get_performance(self):
+    def get_performance(self) -> Dict[str, Union[DataFrame, int]]:
         fit = {'performance': self.power_curve[:self.get_month()].to_frame('kw'),
                'operating time': self.get_month()}
 
         return fit
 
     # estimate the power curve in deployed FRU
-    def get_expected_curve(self):
+    def get_expected_curve(self) -> Series:
         curve = self.power_curves.get_expected_curve(fit=self.get_performance(),
                                                      stack_reducer=self.stack_reducer)
         return curve
 
     # estimate the remaining energy in deployed FRU
-    def get_energy(self, months=None):
+    def get_energy(self, months: int = None) -> float:
         time_needed = self.get_expected_life() if months is None else months      
         energy = self.power_curves.get_expected_energy(fit=self.get_performance(),
                                                        time_needed=time_needed, stack_reducer=self.stack_reducer)
         return energy
 
     # get efficiency of FRU
-    def get_efficiency(self, lookahead=None):
+    def get_efficiency(self, lookahead: int = None) -> float:
         month = self.get_month(lookahead=lookahead)
         efficiency = self.efficiency_curve[min(month, len(self.efficiency_curve)-1)]
         return efficiency
 
     # get deviation of FRU
-    def get_deviation(self, lookahead=None):
+    def get_deviation(self, lookahead: int = None) -> float:
         ideal_power = self.get_power(ideal=True, lookahead=lookahead)
         if ideal_power == 0:
             deviation = 0
@@ -155,19 +161,19 @@ class FRU(Component):
         return deviation
 
     # estimated months left of FRU life
-    def get_expected_life(self):
+    def get_expected_life(self) -> int:
         curve = self.get_expected_curve()
         life = len(curve) - self.get_month() - 1
         return life
 
     # FRU is too old for use
-    def is_dead(self, lookahead=None):
+    def is_dead(self, lookahead: int = None) -> bool:
         month = self.get_month(lookahead=lookahead)
         dead = month > len(self.power_curve)
         return dead
 
     # determine if the power module has degraded already
-    def is_degraded(self, threshold:float=0) -> bool:
+    def is_degraded(self, threshold: float = 0) -> bool:
         '''
         If a power module is outputting less power than its initial rating
         then it is degraded and can be replaced. Default threshold
@@ -177,7 +183,7 @@ class FRU(Component):
         return degraded
 
     # determine if the power module is inefficient already
-    def is_inefficient(self, threshold:float=0) -> bool:     
+    def is_inefficient(self, threshold: float = 0) -> bool:     
         '''
         If a power module is operating at a lower efficiencing than initially
         then it is inefficient and can be replaced. Default threshold
@@ -187,7 +193,7 @@ class FRU(Component):
         return inefficient
 
     # determine if a FRU needs to be repaired
-    def is_deviated(self, threshold:float=0) -> bool:
+    def is_deviated(self, threshold: float = 0) -> bool:
         '''
         If a power module is outputting power too far below what the
         ideal curve would be outputting, then it is deviated and can
@@ -221,7 +227,7 @@ class FRU(Component):
         return
 
     # shift power and efficiency curves forward during storage
-    def store(self, months):
+    def store(self, months: int):
         '''
         When a power module is stored for future redeploys,
         it moves forward on its power and efficiency curves
@@ -231,7 +237,7 @@ class FRU(Component):
         return
 
     # replace stacks and choose new power curves for bespoke options
-    def overhaul(self, new_stacks):
+    def overhaul(self, new_stacks: int):
         '''
         An overhauled FRU starts its life over with new power
         and efficiency curves.
@@ -258,34 +264,34 @@ class Enclosure(Component):
     It has a nameplate rating that limits how much power is outputted
     by the FRU.
     '''
-    def __init__(self, serial, number, model, model_number, nameplate):
+    def __init__(self, serial: str, number: str, model: str, model_number: str, nameplate: float):
         Component.__init__(self, serial, model, model_number, nameplate=nameplate, number=number)
         self.fru = None
 
     # enclosure can hold a FRU
-    def is_empty(self):
+    def is_empty(self) -> bool:
         empty = self.fru is None
         return empty
 
     # enclosure is holding a FRU
-    def is_filled(self):
+    def is_filled(self) -> bool:
         filled = not self.is_empty()
         return filled
 
     # put a FRU in enclosure
-    def add_fru(self, fru):
+    def add_fru(self, fru: FRU):
         self.fru = fru
+        return
     
     # take a FRU out of enclosure
-    def remove_fru(self):
+    def remove_fru(self) -> FRU:
         if not self.is_empty():
             old_fru = self.fru
             self.fru = None
             return old_fru
-        return
 
     # get power of FRU if not empty
-    def get_power(self, lookahead=None):
+    def get_power(self, lookahead: int = None) -> float:
         '''
         The output power of an enclosure is limited by its nameplate.
         '''
@@ -297,12 +303,12 @@ class Enclosure(Component):
         return power
 
     # get expected energy of FRU if not empty
-    def get_energy(self, months=None):
+    def get_energy(self, months: int = None) -> float:
         energy = self.fru.get_energy(months=months) if not self.is_empty() else 0
         return energy
 
     # get efficiency of FRU if not empty
-    def get_efficiency(self, lookahead=None):
+    def get_efficiency(self, lookahead: int = None) -> float:
         if self.is_empty():
             efficiency = 0
         else:
@@ -311,7 +317,7 @@ class Enclosure(Component):
         return efficiency
 
     # upgrade enclosure model type
-    def upgrade_enclosure(self, model, model_number, nameplate):
+    def upgrade_enclosure(self, model: str, model_number: str, nameplate: str):
         self.model = model
         self.model_number = model_number
         self.nameplate = nameplate
@@ -323,27 +329,27 @@ class Server(Component):
     The energy server has an inverter with a nameplate that limits how
     much power is outputted.
     '''
-    def __init__(self, serial, number, model, model_number, nameplate):
+    def __init__(self, serial: str, number: str, model: str, model_number: str, nameplate: float):
         Component.__init__(self, serial, model, model_number, nameplate=nameplate, number=number)
         self.enclosures = {}
 
     # return array of servers
-    def get_enclosures(self):
+    def get_enclosures(self) -> List[Enclosure]:
         enclosures = [self.enclosures[enclosure_number] for enclosure_number in self.enclosures]
         return enclosures
 
     # return array of server numbers
-    def get_enclosure_numbers(self):
+    def get_enclosure_numbers(self) -> List[str]:
         enclosure_numbers = [enclosure_number for enclosure_number in self.enclosures]
         return enclosure_numbers
 
     # add an empty enclosure for a FRU or plus-one
-    def add_enclosure(self, enclosure):
+    def add_enclosure(self, enclosure: Enclosure):
         self.enclosures[enclosure.number] = enclosure
         return
     
     # replace FRU in enclosure with new FRU
-    def replace_fru(self, enclosure_number=None, fru=None):
+    def replace_fru(self, enclosure_number: str = None, fru: FRU = None) -> FRU:
         if enclosure_number is None:
             # add to next available slot
             enclosure_number = self.get_empty_enclosure()
@@ -358,12 +364,12 @@ class Server(Component):
         return old_fru
 
     # return array of FRU powers
-    def get_fru_power(self, lookahead=None):
+    def get_fru_power(self, lookahead: int = None) -> float:
         fru_power = [enclosure.get_power(lookahead=lookahead) for enclosure in self.get_enclosures()]
         return fru_power
 
     # get total power of all FRUs, capped at nameplate rating
-    def get_power(self, cap=True, lookahead=None):
+    def get_power(self, cap: bool = True, lookahead: int = None) -> float:
         power = sum(self.get_fru_power(lookahead=lookahead))
         if cap:
             power = min(self.nameplate, power)
@@ -371,7 +377,7 @@ class Server(Component):
         return power
 
     # estimate the remaining energy in server FRUs
-    def get_energy(self, months=None):
+    def get_energy(self, months: int = None) -> float:
         curves_to_concat = [enclosure.fru.get_expected_curve()[enclosure.fru.get_month():] for enclosure in self.get_enclosures() \
             if enclosure.is_filled() and not enclosure.fru.is_dead()]
 
@@ -392,18 +398,18 @@ class Server(Component):
         return energy
 
     # max potential gain before hitting ceiling loss
-    def get_headroom(self):      
+    def get_headroom(self) -> float:     
         power = self.get_power()
         headroom = self.nameplate - power
         return headroom
 
     # power that is lost due to nameplate capacity
-    def get_ceiling_loss(self):       
+    def get_ceiling_loss(self) -> float:
         ceiling_loss = self.get_power(cap=False) - self.get_power()
         return ceiling_loss
 
     # server has an empty enclosure or an enclosure with a dead FRU
-    def has_empty(self, dead=False):
+    def has_empty(self, dead: bool = False) -> bool:
         # server has at least one empty enclosure
         empty = any(enclosure.is_empty() for enclosure in self.get_enclosures())
         
@@ -414,18 +420,18 @@ class Server(Component):
         return empty
 
     # server is full if there are no empty enclosures, it is at nameplate capacity or adding another FRU won't leave a slot free
-    def is_full(self, plus_one_empty=False):
+    def is_full(self, plus_one_empty: bool = False) -> bool:
         full = (not self.has_empty()) or (self.get_power() >= self.nameplate) or \
             (plus_one_empty and (sum([enclosure.is_empty() for enclosure in self.get_enclosures()]) <= 1))
         return full
 
     # server has no FRUs and is just empty enclosures
-    def is_empty(self):
+    def is_empty(self) -> bool:
         empty = all(enclosure.is_empty() for enclosure in self.get_enclosures())
         return empty
 
     # return sequence number of empty enclosure
-    def get_empty_enclosure(self, dead=False):
+    def get_empty_enclosure(self, dead: bool = False) -> str:
         dead_frus = [enclosure.fru.is_dead() if enclosure.is_filled() else False for enclosure in self.get_enclosures()]
 
         if self.has_empty():

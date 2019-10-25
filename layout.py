@@ -5,6 +5,7 @@ from datetime import date
 from dateutil.relativedelta import relativedelta
 from urllib.request import urlopen
 from urllib.error import URLError
+from typing import Union, Tuple, List
 
 # add-on imports
 from pandas import read_json, isna, concat, DataFrame, Series, to_datetime
@@ -20,7 +21,7 @@ class ServerLayout:
     Sites start with variable servers and enclosures.
     If there are servers, then the layout exists.
     '''
-    def __init__(self, server_layout:DataFrame):
+    def __init__(self, server_layout: DataFrame):
         self.server_layout = server_layout if ((server_layout is not None) and len(server_layout)) else None
 
     def __repr__(self) -> str:
@@ -39,10 +40,10 @@ class ExistingServers(ServerLayout):
     Servers at existing sites have been running for
     some time and have actual performance.
     '''
-    def __init__(self, server_layout):
+    def __init__(self, server_layout: DataFrame):
         ServerLayout.__init__(self, server_layout)
 
-    def __getitem__(self, number) -> DataFrame:
+    def __getitem__(self, number: Union[str, int, tuple]) -> DataFrame:
         if type(number) in [str, int]:
             server_number = number
             item = self.server_layout[server_number]
@@ -61,7 +62,7 @@ class ExistingServers(ServerLayout):
 
         return size
 
-    def get_dates(self) -> [date, int]:
+    def get_dates(self) -> Tuple[date, int]:
         if self.exist():
             install_date = min([self.server_layout[server]['frus'][fru]['install date'] for server in self.get_server_numbers() \
                                 for fru in self.get_enclosure_numbers(server)]).date()
@@ -76,17 +77,17 @@ class ExistingServers(ServerLayout):
 
         return install_date, start_month
 
-    def get_models(self) -> [str]:
+    def get_models(self) -> List[str]:
         if self.exist():
             models = [self.server_layout[server]['model'] for server in self.get_server_numbers()]
             return models
 
-    def get_server_numbers(self) -> [str]:
+    def get_server_numbers(self) -> List[str]:
         if self.exist():
             server_numbers = list(self.server_layout.keys())
             return server_numbers
 
-    def get_enclosure_numbers(self, server_number:str) -> [str]:
+    def get_enclosure_numbers(self, server_number: str) -> List[str]:
         if self.exist():
             enclosure_numbers = list(self.server_layout[server_number]['frus'].keys())
             return enclosure_numbers
@@ -97,10 +98,10 @@ class NewServers(ServerLayout):
     Servers at theoretical new sites have 
     sequential numbering and no performance yet.
     '''
-    def __init__(self, server_layout:DataFrame):
+    def __init__(self, server_layout: DataFrame):
         ServerLayout.__init__(self, server_layout)
 
-    def __getitem__(self, number:int) -> Series:
+    def __getitem__(self, number: int) -> Series:
         item = self.server_layout.query('server_number == @number').iloc[0]
         return item
 
@@ -109,24 +110,24 @@ class NewServers(ServerLayout):
             size = self.server_layout['nameplate'].sum()
             return size
 
-    def get_server_numbers(self) -> [int]:
+    def get_server_numbers(self) -> List[int]:
         if self.exist():
             server_numbers = self.server_layout['server_number'].to_list()
             return server_numbers
 
-    def get_enclosure_numbers(self, server_number:int, filled_only:bool=True) -> [int]:
+    def get_enclosure_numbers(self, server_number: int, filled_only: bool = True) -> List[int]:
         if self.exist():
             to_count = ['filled'] if filled_only else ['filled', 'empty']
             enclosure_numbers = list(range(int(self[server_number][to_count].sum())))
             return enclosure_numbers
 
-    def get_models(self) -> [str]:
+    def get_models(self) -> List[str]:
         if self.exist():
             models = self.server_layout['model'].to_list()
             return models
 
 class LayoutGenerator:
-    def __init__(self, sql_db:SQLDB):
+    def __init__(self, sql_db: SQLDB):
         self.sql_db = sql_db
 
 # connect to internal Bloom API for site, server and power module performance of fleet
@@ -144,7 +145,7 @@ class APC(LayoutGenerator):
         return internet
 
     # get Bloom sites, customer names, servers and power modules
-    def get_data(keyword:str) -> DataFrame:
+    def get_data(keyword: str) -> DataFrame:
         keywords = {'sites': 'sites',
                     'servers': 'energyServers'}
         print('Connecting to APC for {} data'.format(keyword))
@@ -152,7 +153,7 @@ class APC(LayoutGenerator):
         data = read_json(url)
         return data
 
-    def __init__(self, sql_db:SQLDB):
+    def __init__(self, sql_db: SQLDB):
         LayoutGenerator.__init__(self, sql_db)
         self.sites = None
         self.servers = None
@@ -171,7 +172,7 @@ class APC(LayoutGenerator):
             self.sql_db.write_apc_sites(missing_sites)
 
     # get performance of each power module at a site
-    def get_site_performance(self, site_code:str, start_date:date=None, end_date:date=None, tmo_threshold:float=10) -> dict:
+    def get_site_performance(self, site_code: str, start_date: date = None, end_date: date = None, tmo_threshold: float = 10) -> dict:
         site_performance = {}
         if APC.check_internet() and ((site_code is not None) and len(site_code)):
             if self.sites is None: self.sites = APC.get_data('sites')
@@ -203,7 +204,7 @@ class APC(LayoutGenerator):
         return site_performance
 
     # get performance of individual power module and determine start date
-    def get_fru_performance(self, fru_code:str, start_date:date=None, end_date:date=None, tmo_threshold:float=10) -> [DataFrame, date, date, relativedelta]:
+    def get_fru_performance(self, fru_code: str, start_date: date = None, end_date: date = None, tmo_threshold: float = 10) -> Tuple[DataFrame, date, date, relativedelta]:
         start_param = '?start={}'.format(start_date.strftime('%Y-%m-%d')) if start_date is not None else ''
         end_param = '&end={}'.format(end_date.strftime('%Y-%m-%d')) if (start_date is not None) and (end_date is not None) else ''
         params = '{}{}'.format(start_param, end_param)
@@ -239,7 +240,7 @@ class APC(LayoutGenerator):
         return fru_performance, fru_install_date, fru_current_date, fru_operating_time
 
 class RandomLayout(LayoutGenerator):
-    def __init__(self, sql_db:SQLDB):
+    def __init__(self, sql_db: SQLDB):
         LayoutGenerator.__init__(self, sql_db)
         self.columns = ['model', 'model_number', 'nameplate', 'filled', 'empty']
         self.sql_db = sql_db
@@ -249,7 +250,7 @@ class RandomLayout(LayoutGenerator):
         sites = self.sql_db.get_table('Site')
         return sites
 
-    def get_site_layout(self, max_servers:int=10) -> NewServers:
+    def get_site_layout(self, max_servers: int = 10) -> NewServers:
         # check that there are sites left
         if self.sites.empty:
             self.sites = self.get_sites_from_db
