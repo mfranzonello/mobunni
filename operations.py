@@ -289,7 +289,7 @@ class Shop:
         fru = self.junked.pop(queue)
 
         fru.overhaul(stacks)
-        cost = self.get_cost('overhaul fru', )
+        cost = self.get_cost('overhaul fru', fru, power=fru.rating * fru.stack_reducer)
         self.transact(fru.serial, fru.model, fru.get_model_number(), fru.get_power(), fru.get_efficiency(),
                         'overhauled FRU', 'to', site_number, server_number, enclosure_number, cost, reason=reason)
         return fru
