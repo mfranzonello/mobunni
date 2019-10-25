@@ -2,10 +2,10 @@
 
 # built-in imports
 from typing import Tuple, Dict
+from datetime import date
 
 # add-on imports
 from pandas import DataFrame
-from datetime import date
 
 # built-in imports
 from structure import SQLDB
