@@ -1,9 +1,7 @@
 # main script to read inputs, set up structure, run simulation and print results
 
 # inputs
-structure_db = {1: 'sqlite-local', # locally stored SQLite
-                2: 'sqlite-network', # network stored SQLite
-                }[2]
+structure_db = 'bitio' # network postgres DB
 
 open_results = True # open Excel file when done running
 
@@ -52,7 +50,7 @@ class ServiceModel:
         power and efficiency curves, compatibility, etc and for writing new
         data.
         '''
-        sql_db = SQLDB(structure_db)
+        sql_db = SQLDB(structure_db, username='mfranzonello', schema='mobunni')
         return sql_db
 
     ''' SIMULATOR FUNCTIONS '''

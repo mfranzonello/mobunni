@@ -12,6 +12,12 @@ class URL:
                                                    'database': 'mobunni',
                                                    'path': r'\\Denali\Departments\Marketing\Product_Management\Service Costs'},
                                     'string format': '{connector}:///{path}\{database}.db'},
+
+                 'bitio': {'parameters': {'username': 'mfranzonello',
+                                          'password': 'v2_3ttt8_P2hNkmd3WUESgDLeXQeWrTB',
+                                          'server': 'db.bit.io',
+                                          'schema': 'mobunni'},
+                           'string format': 'postgresql://{username}:{password}@{server}/{username}/{schema}'}
                  }
 
     apc_tmo = {'host': 'https://tmo-portal.ionamerica.priv',

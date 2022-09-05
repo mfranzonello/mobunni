@@ -25,7 +25,7 @@ class Project:
     start = 'bpm_' # start of input files
     file_types = {'inputs': 'simulation',
                   'data': 'database'}
-    middle = {m: '{}'.format(m) for m in file_types} # differentiator of input files
+    middle = {m: f'{m}' for m in file_types} # differentiator of input files
     end = 'xls' # input files extension
 
     def __init__(self):
@@ -45,10 +45,8 @@ class Project:
         identifiers = {i: Project.start + Project.middle[i] for i in Project.middle}
 
         self.path = filedialog.askopenfilename(initialdir=Project.folder, title='Select scenarios file',
-                                               filetypes=[('BPM inputs', '{identifier}*.{extension}*'.format(identifier=identifiers['inputs'],
-                                                                                                             extension=Project.end)),
-                                                          ('BPM curves', '{identifier}*.{extension}*'.format(identifier=identifiers['data'],
-                                                                                                             extension=Project.end)),
+                                               filetypes=[('BPM inputs', f'{identifiers["inputs"]}*.{Project.end}*'),
+                                                          ('BPM curves', f'{identifiers["data"]}*.{Project.end}*'),
                                                           ('all files', '*.*')])
         if not self.path:
             # no project selected, so quit
@@ -72,8 +70,8 @@ class Project:
 
             else:
                 # valid project
-                self.name = self.path[self.path.index(identifiers[id]) + len(identifiers[id]):self.path.rindex('.{}'.format(Project.end))].strip()
-                print('Selected {}'.format(self.path))    
+                self.name = self.path[self.path.index(identifiers[id]) + len(identifiers[id]):self.path.rindex(f'.{Project.end}')].strip()
+                print(f'Selected {self.path}')    
 
 # read in standard assumptions from SQL
 class SQLDB:
@@ -87,32 +85,38 @@ class SQLDB:
 
     ''' READING FROM DATABASE '''
 
-    def __init__(self, structure_db: str):
-        print('Getting database from {}'.format(structure_db))
+    def __init__(self, structure_db: str, username=None, schema=None):
+        print(f'Getting database from {structure_db}')
         self.engine = create_engine(URL.get_database(structure_db))
         self.connection = self.engine.connect()
+        self.username = username
+        self.schema = schema
+
+    # get full PostgreSQL table name
+    def table_name(self, table):
+        return f'"{self.username}/{self.schema}"."{table}"'
 
     # earliest historical date there is an energy server and power module available 
     def get_earliest_date(self) -> date:
-        sql = 'SELECT initial_date FROM Module ORDER BY initial_date LIMIT 1'
+        sql = f'SELECT initial_date FROM {self.table_name("Module")} ORDER BY initial_date LIMIT 1'
         earliest_date = read_sql(sql, self.connection, parse_dates=['initial_date']).squeeze()
         return earliest_date
 
     # select a table from the database
     def get_table(self, table: str) -> DataFrame:
-        sql = 'SELECT * FROM {}'.format(table)
+        sql = f'SELECT * FROM {self.table_name(table)}'
         table = read_sql(sql, self.connection)
         return table
 
     # select the thresholds for FRU repairs and redeploys
     def get_thresholds(self) -> Series:
-        sql = 'SELECT item, threshold from Threshold'
+        sql = f'SELECT item, threshold from {self.table_name("Threshold")}'
         thresholds = read_sql(sql, self.connection, index_col='item').squeeze()
         return thresholds
 
     # select latest energy server model
     def get_latest_server_model(self, install_date: date, target_model: str = None) -> str:
-        sql = 'SELECT model FROM Module WHERE initial_date < "{}" ORDER BY rating DESC'.format(install_date)
+        sql = f'SELECT model FROM {self.table_name("Module")} WHERE initial_date < "{installdate}" ORDER BY rating DESC'
         server_models = read_sql(sql, self.connection)
         
         if (target_model is not None) and (target_model in server_models['model'].to_list()):
@@ -124,7 +128,7 @@ class SQLDB:
 
     # find the alternative name of an internal server name
     def get_alternative_server_model(self, server_model: str) -> str:
-        sql = 'SELECT server FROM Compatibility WHERE server = module'
+        sql = f'SELECT server FROM {self.table_name("Compatibility")} WHERE server = module'
         names = read_sql(sql, self.connection)['server'].squeeze()
 
         if server_model in names.to_list():
@@ -132,42 +136,42 @@ class SQLDB:
             alternative = server_model
         else:
             # server is alternative name
-            sql = 'SELECT module FROM Compatibility WHERE server = module LIMIT 1'
+            sql = f'SELECT module FROM {self.table_name("Compatibility")} WHERE server = module LIMIT 1'
             alternative = read_sql(sql, self.connection).squeeze()
         return alternative
 
     # select power modules compatible with server model
     def get_compatible_modules(self, server_model: str) -> list:
-        sql = 'SELECT module FROM Compatibility WHERE server = "{}"'.format(server_model)
+        sql = f'SELECT module FROM {self.table_name("Compatibility")} WHERE server = "{server_model}"'
         allowed_modules = read_sql(sql, self.connection).squeeze()
         return allowed_modules
 
     # select default modules for roadmap
     def get_default_modules(self) -> DataFrame:
-        sql = 'SELECT model, mark, model_number FROM Module WHERE mark = model_number'
+        sql = f'SELECT model, mark, model_number FROM {self.table_name("Module")} WHERE mark = model_number'
         default_modules = read_sql(sql, self.connection)
         return default_modules
 
     # select cost for shop action
     def get_cost(self, action: str, action_date: date, model: str = None, mark: str = None, operating_time: int = None, power: float = None) -> float:
-        where_list = ['action = "{}"'.format(action),
-                      'date <= "{}"'.format(action_date)]
+        where_list = [f'action = "{action}"',
+                      f'date <= "{action_date}"']
         max_list = ['date']
         
         if model is not None:
-            where_list.append('model = "{}"'.format(model))
+            where_list.append(f'model = "{model}"')
         if mark is not None:
-            where_list.append('mark = "{}"'.format(mark))
+            where_list.append(f'mark = "{mark}"')
         if operating_time is not None:
-            where_list.append('operating_time <= {}'.format(operating_time))
+            where_list.append(f'operating_time <= {operating_time}')
             max_list.append('operating_time')
         if power is not None:
-            where_list.append('power <= {}'.format(power))
+            where_list.append(f'power <= {power}')
             max_list.append('power')
        
         wheres = ' AND '.join(where_list)
         selects = ','.join(['cost'] + max_list)
-        sql = 'SELECT {} FROM Cost WHERE {}'.format(selects, wheres)
+        sql = f'SELECT {selects} FROM {self.table_name("Cost")} WHERE {wheres}'
 
         costs = read_sql(sql, self.connection)
 
@@ -352,7 +356,7 @@ class SQLDB:
 
     # select system sizes and full power date of historical distribution
     def get_system_sizes(self) -> [Series, Series]:
-        sql = 'SELECT system_size, full_power_date FROM Site'
+        sql = f'SELECT system_size, full_power_date FROM {self.table_name("Site")}'
         systems = read_sql(sql, self.connection, parse_dates=['full_power_date'])
         system_sizes = systems['system_size']
         system_dates = systems['full_power_date']
@@ -361,25 +365,25 @@ class SQLDB:
     # get contract values
     def get_contract(self, contract_number: str = None) -> DataFrame:
         if contract_number is None:
-            sql = 'SELECT DISTINCT number FROM Contract'
+            sql = f'SELECT DISTINCT number FROM {self.table_name("Contract")}'
             contract_number = read_sql(sql, self.connection).sample(1)['number']
 
-        sql = 'SELECT * FROM Contract WHERE number = "{}"'.format(contract_number)
+        sql = f'SELECT * FROM {self.table_name("Contract")} WHERE number = "{contract_number}"'
         contract = read_sql(sql, self.connection).drop_duplicates(subset=['number', 'requirement']).set_index('requirement')['value']
 
         return contract
 
     # get line items for cash flow
     def get_line_item(self, item: str, item_date: date, escalator_basis: str = None) -> [float, float]:
-        sql = 'SELECT value FROM CashFlow WHERE (lineitem = "{}") AND (date <= "{}") ORDER BY date DESC LIMIT 1'.format(item, item_date)
+        sql = f'SELECT value FROM {self.table_name("CashFlow")} WHERE (lineitem = "{item}") AND (date <= "{item_date}") ORDER BY date DESC LIMIT 1'
         start_values = read_sql(sql, self.connection, parse_dates=['date'])
 
         if escalator_basis is None:
-            sql = 'SELECT value FROM CashFlow WHERE (lineitem = "{} escalator") AND (date <= "{}") ORDER BY date DESC LIMIT 1'.format(item, item_date)
+            sql = f'SELECT value FROM {self.table_name("CashFlow")} WHERE (lineitem = "{item} escalator") AND (date <= "{item_date}") ORDER BY date DESC LIMIT 1'
             escalators = read_sql(sql, self.connection, parse_dates=['date'])
 
         else:
-            sql = 'SELECT value, date FROM CashFlow WHERE lineitem = "{}" ORDER BY date ASC'.format(escalator_basis)
+            sql = f'SELECT value, date FROM {self.table_name("CashFlow")} WHERE lineitem = "{escalator_basis}" ORDER BY date ASC'
             escalators = read_sql(sql, self.connection, parse_dates=['date'])
             escalators.loc[:, 'escalator'] = escalators['value'].pct_change()
             escalators = escalators[(escalators['date'] <= Timestamp(item_date))]
@@ -392,7 +396,7 @@ class SQLDB:
 
     # get sites from APC in database
     def get_apc_sites(self) -> DataFrame:
-        sql = 'SELECT customer, id FROM APC'
+        sql = f'SELECT customer, id FROM {self.table_name("APC")}'
         sites = read_sql(sql, self.connection)
         return sites
 
@@ -432,12 +436,12 @@ class SQLDB:
         wheres = self.where_matches(table_name, keys, pairs)
         
         if len(wheres):
-            sql = 'DELETE FROM "{}" WHERE {}'.format(table_name, wheres)
+            sql = f'DELETE FROM {self.table_name(table_name)} WHERE {wheres}'
             self.connection.execute(sql)
 
         # add new data
         if (data is not None) and (not data.empty):
-            data.to_sql(table_name, self.connection, if_exists='append', index=False)
+            data.to_sql(self.table_name(table_name), self.connection, if_exists='append', index=False)
         
         return
 
